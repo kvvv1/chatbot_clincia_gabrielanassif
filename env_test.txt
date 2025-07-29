@@ -1,0 +1,23 @@
+# Z-API Credentials (para testes)
+ZAPI_INSTANCE_ID=test_instance_id
+ZAPI_TOKEN=test_token
+ZAPI_CLIENT_TOKEN=test_client_token
+
+# GestãoDS API (para testes)
+GESTAODS_API_URL=https://apidev.gestaods.com.br
+GESTAODS_TOKEN=test_token_gestaods
+
+# Database (SQLite para testes)
+DATABASE_URL=sqlite:///./chatbot_test.db
+
+# App Settings
+APP_HOST=0.0.0.0
+APP_PORT=8000
+ENVIRONMENT=development
+DEBUG=True
+
+# Clinic Info
+CLINIC_NAME=Clínica Gabriela Nassif
+CLINIC_PHONE=5531999999999
+REMINDER_HOUR=18
+REMINDER_MINUTE=0 

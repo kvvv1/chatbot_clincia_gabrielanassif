@@ -1,0 +1,38 @@
+services:
+  - type: web
+    name: chatbot-clinica
+    env: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: DATABASE_URL
+        fromDatabase:
+          name: chatbot-clinica-db
+          property: connectionString
+      - key: ZAPI_INSTANCE_ID
+        sync: false
+      - key: ZAPI_TOKEN
+        sync: false
+      - key: ZAPI_CLIENT_TOKEN
+        sync: false
+      - key: GESTAODS_API_URL
+        sync: false
+      - key: GESTAODS_TOKEN
+        sync: false
+      - key: CLINIC_NAME
+        value: Clínica Gabriela Nassif
+      - key: CLINIC_PHONE
+        value: 5531999999999
+      - key: REMINDER_HOUR
+        value: 18
+      - key: REMINDER_MINUTE
+        value: 0
+
+databases:
+  - name: chatbot-clinica-db
+    databaseName: chatbot_clinica
+    user: chatbot_user 
