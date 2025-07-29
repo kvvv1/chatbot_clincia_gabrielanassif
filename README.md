@@ -297,4 +297,3 @@ Para suporte técnico:
 
 ---
 
-**Desenvolvido com ❤️ para a Clínica Gabriela Nassif** 
