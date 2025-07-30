@@ -21,19 +21,26 @@ class GestaoDS:
             cpf_limpo = ''.join(filter(str.isdigit, cpf))
 
             async with httpx.AsyncClient() as client:
+                # Usando a API correta da GestãoDS
                 response = await client.get(
-                    f"{self.base_url}/api/paciente/{self.token}/{cpf_limpo}/",
+                    f"{self.base_url}/api/pacientes/",
                     headers=self.headers,
+                    params={"cpf": cpf_limpo},
                     timeout=30.0
                 )
 
                 if response.status_code == 200:
-                    return response.json()
+                    data = response.json()
+                    if data and len(data) > 0:
+                        return data[0]  # Retorna primeiro paciente encontrado
+                    else:
+                        logger.info(f"Paciente não encontrado: {cpf}")
+                        return None
                 elif response.status_code == 404:
                     logger.info(f"Paciente não encontrado: {cpf}")
                     return None
                 else:
-                    logger.error(f"Erro ao buscar paciente: {response.status_code}")
+                    logger.error(f"Erro ao buscar paciente: {response.status_code} - {response.text}")
                     return None
 
         except Exception as e:
@@ -55,7 +62,7 @@ class GestaoDS:
                 }
 
                 response = await client.get(
-                    f"{self.base_url}/api/agenda/horarios-disponiveis/",
+                    f"{self.base_url}/api/agenda/horarios/",
                     headers=self.headers,
                     params=params,
                     timeout=30.0
@@ -63,10 +70,11 @@ class GestaoDS:
 
                 if response.status_code == 200:
                     horarios = response.json()
-                    # Formatar horários para exibição
-                    return self._formatar_horarios(horarios)
+                    # Filtrar apenas horários disponíveis
+                    horarios_disponiveis = [h for h in horarios if h.get('disponivel', False)]
+                    return self._formatar_horarios(horarios_disponiveis)
                 else:
-                    logger.error(f"Erro ao buscar horários: {response.status_code}")
+                    logger.error(f"Erro ao buscar horários: {response.status_code} - {response.text}")
                     return []
 
         except Exception as e:
@@ -91,7 +99,7 @@ class GestaoDS:
                 }
 
                 response = await client.post(
-                    f"{self.base_url}/api/agendamento/",
+                    f"{self.base_url}/api/agendamentos/",
                     headers=self.headers,
                     json=payload,
                     timeout=30.0
@@ -100,7 +108,7 @@ class GestaoDS:
                 if response.status_code in [200, 201]:
                     return response.json()
                 else:
-                    logger.error(f"Erro ao criar agendamento: {response.text}")
+                    logger.error(f"Erro ao criar agendamento: {response.status_code} - {response.text}")
                     return None
 
         except Exception as e:

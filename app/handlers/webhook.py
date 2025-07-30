@@ -2,6 +2,9 @@ from fastapi import APIRouter, Request, HTTPException, Depends
 from sqlalchemy.orm import Session
 from app.models.database import get_db
 from app.services.conversation import ConversationManager
+from app.handlers.dashboard import process_new_conversation
+from app.models.database import Conversation
+from datetime import datetime
 import logging
 
 logger = logging.getLogger(__name__)
@@ -32,6 +35,28 @@ async def webhook_message(request: Request, db: Session = Depends(get_db)):
                 await conversation_manager.processar_mensagem(
                     phone, message, message_id, db
                 )
+
+                # Processar para o dashboard
+                try:
+                    # Buscar conversa existente
+                    conversation = db.query(Conversation).filter(
+                        Conversation.phone == phone
+                    ).first()
+                    
+                    if conversation:
+                        # Preparar mensagens para análise
+                        messages = [
+                            {
+                                'sender': 'user',
+                                'message': message,
+                                'timestamp': datetime.utcnow()
+                            }
+                        ]
+                        
+                        # Processar no dashboard
+                        await process_new_conversation(phone, messages, db)
+                except Exception as e:
+                    logger.error(f"Erro ao processar para dashboard: {str(e)}")
 
                 return {"status": "success"}
 

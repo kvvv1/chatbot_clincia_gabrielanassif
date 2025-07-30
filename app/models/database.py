@@ -43,13 +43,43 @@ class WaitingList(Base):
     notified = Column(Boolean, default=False)
 
 # Database setup
-engine = create_engine(settings.database_url)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base.metadata.create_all(bind=engine)
+try:
+    engine = create_engine(settings.database_url)
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+except Exception as e:
+    print(f"⚠️  Aviso: Não foi possível conectar ao banco de dados: {e}")
+    print("💡 Para desenvolvimento, você pode usar SQLite ou PostgreSQL via Docker")
+    engine = None
+    SessionLocal = None
 
 def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close() 
+    if SessionLocal is None:
+        # Mock database for development
+        class MockDB:
+            def __init__(self):
+                self.data = {}
+            
+            def add(self, obj):
+                if not hasattr(self, 'conversations'):
+                    self.conversations = []
+                self.conversations.append(obj)
+                return obj
+            
+            def commit(self):
+                pass
+            
+            def close(self):
+                pass
+        
+        db = MockDB()
+        try:
+            yield db
+        finally:
+            db.close()
+    else:
+        db = SessionLocal()
+        try:
+            yield db
+        finally:
+            db.close() 
