@@ -9,11 +9,19 @@ class WhatsAppService:
     def __init__(self):
         self.base_url = f"{settings.zapi_base_url}/instances/{settings.zapi_instance_id}/token/{settings.zapi_token}"
         self.headers = {
-            "Client-Token": settings.zapi_client_token,
+            "Client-Token": settings.zapi_client_token,  # Usar o Client-Token correto
             "Content-Type": "application/json"
         }
         # Log para debug
-        logger.info(f"Z-API Config: Instance={settings.zapi_instance_id}, Token={settings.zapi_token[:10]}..., ClientToken={settings.zapi_client_token[:10]}...")
+        logger.info(f"Z-API Config: Instance={settings.zapi_instance_id}, Token={settings.zapi_token[:10]}...")
+        
+        # Verificar se as credenciais estão configuradas
+        if not settings.zapi_instance_id or not settings.zapi_token:
+            logger.error("❌ Credenciais Z-API não configuradas!")
+            logger.error(f"Instance ID: {settings.zapi_instance_id}")
+            logger.error(f"Token: {settings.zapi_token}")
+        else:
+            logger.info("✅ Credenciais Z-API configuradas")
 
     async def send_text(self, phone: str, message: str, delay_message: int = 2):
         """Envia mensagem de texto simples"""
@@ -126,6 +134,10 @@ class WhatsAppService:
 
         except Exception as e:
             logger.error(f"Erro ao marcar como lida: {str(e)}")
+
+    async def send_message(self, phone: str, message: str, delay_message: int = 2):
+        """Alias para send_text - compatibilidade"""
+        return await self.send_text(phone, message, delay_message)
 
     def _format_phone(self, phone: str) -> str:
         """Formata número de telefone para padrão Z-API"""

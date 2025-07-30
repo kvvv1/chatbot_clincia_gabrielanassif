@@ -18,7 +18,8 @@ async def webhook_health():
             "status": "ok",
             "message": "Webhook endpoint funcionando",
             "service": "WhatsApp Webhook",
-            "timestamp": datetime.now().isoformat() + "Z"
+            "timestamp": datetime.now().isoformat() + "Z",
+            "environment": "vercel" if settings.environment == "production" else "local"
         }
     except Exception as e:
         logger.error(f"Erro no webhook health: {str(e)}")
@@ -29,30 +30,137 @@ async def webhook_health_alt():
     """Endpoint alternativo de saúde do webhook"""
     return await webhook_health()
 
-@router.post("/")
-async def webhook_handler(request: Request):
-    """Handler principal do webhook - Processa eventos do Z-API"""
+@router.post("/message")
+async def webhook_message(request: Request):
+    """Handler para mensagens recebidas"""
     try:
-        # Log da requisição
-        logger.info("Webhook recebido do Z-API")
+        logger.info("=== WEBHOOK MESSAGE RECEBIDO ===")
         
         # Obter corpo da requisição
         body = await request.body()
         data = await request.json()
         
+        logger.info(f"Dados do webhook message: {json.dumps(data, indent=2)}")
+        
+        # Processar mensagem
+        await process_message_event(data)
+        
+        return {
+            "status": "success",
+            "message": "Mensagem processada com sucesso",
+            "timestamp": datetime.now().isoformat() + "Z"
+        }
+        
+    except Exception as e:
+        logger.error(f"Erro no webhook message: {str(e)}")
+        logger.error(f"Traceback completo: ", exc_info=True)
+        return {
+            "status": "success",
+            "message": "Mensagem processada",
+            "error": str(e)
+        }
+
+@router.post("/status")
+async def webhook_status(request: Request):
+    """Handler para status das mensagens"""
+    try:
+        logger.info("=== WEBHOOK STATUS RECEBIDO ===")
+        
+        data = await request.json()
+        logger.info(f"Status da mensagem: {json.dumps(data, indent=2)}")
+        
+        return {
+            "status": "success",
+            "message": "Status processado",
+            "timestamp": datetime.now().isoformat() + "Z"
+        }
+        
+    except Exception as e:
+        logger.error(f"Erro no webhook status: {str(e)}")
+        return {
+            "status": "success",
+            "message": "Status processado",
+            "error": str(e)
+        }
+
+@router.post("/connected")
+async def webhook_connected(request: Request):
+    """Handler para eventos de conexão/desconexão"""
+    try:
+        logger.info("=== WEBHOOK CONNECTED RECEBIDO ===")
+        
+        data = await request.json()
+        logger.info(f"Evento de conexão: {json.dumps(data, indent=2)}")
+        
+        return {
+            "status": "success",
+            "message": "Evento de conexão processado",
+            "timestamp": datetime.now().isoformat() + "Z"
+        }
+        
+    except Exception as e:
+        logger.error(f"Erro no webhook connected: {str(e)}")
+        return {
+            "status": "success",
+            "message": "Evento processado",
+            "error": str(e)
+        }
+
+# Endpoint de fallback para compatibilidade
+@router.post("")
+async def webhook_handler_no_slash(request: Request):
+    """Handler para webhook sem barra final - compatibilidade com Z-API"""
+    try:
+        logger.info("=== WEBHOOK SEM BARRA FINAL RECEBIDO ===")
+        logger.info(f"URL: {request.url}")
+        logger.info(f"Method: {request.method}")
+        logger.info(f"Headers: {dict(request.headers)}")
+        
+        # Obter corpo da requisição
+        body = await request.body()
+        logger.info(f"Body raw: {body}")
+        
+        try:
+            data = await request.json()
+            logger.info(f"Dados do webhook: {json.dumps(data, indent=2)}")
+        except Exception as json_error:
+            logger.error(f"Erro ao parsear JSON: {str(json_error)}")
+            logger.error(f"Body recebido: {body}")
+            return {
+                "status": "success",
+                "message": "Webhook recebido (erro no JSON)",
+                "timestamp": datetime.now().isoformat() + "Z"
+            }
+        
+        return await webhook_handler(request)
+        
+    except Exception as e:
+        logger.error(f"Erro no webhook sem barra: {str(e)}")
+        return {
+            "status": "success",
+            "message": "Webhook processado",
+            "error": str(e)
+        }
+
+@router.post("/")
+async def webhook_handler(request: Request):
+    """Handler principal do webhook - Processa eventos do Z-API"""
+    try:
+        logger.info("Webhook recebido do Z-API (endpoint genérico)")
+        
+        data = await request.json()
         logger.info(f"Dados do webhook: {json.dumps(data, indent=2)}")
         
-        # Verificar se é um evento de mensagem
-        if data.get("event") == "message":
-            await process_message_event(data)
-        elif data.get("event") == "connection":
-            logger.info(f"Evento de conexão: {data}")
-        elif data.get("event") == "disconnection":
-            logger.info(f"Evento de desconexão: {data}")
-        else:
-            logger.info(f"Evento não processado: {data.get('event')}")
+        # Verificar tipo de evento
+        event_type = data.get("event", "")
         
-        # Sempre retornar sucesso para o Z-API
+        if event_type == "message":
+            await process_message_event(data)
+        elif event_type in ["connection", "disconnection"]:
+            logger.info(f"Evento de {event_type}: {data}")
+        else:
+            logger.info(f"Evento não processado: {event_type}")
+        
         return {
             "status": "success",
             "message": "Webhook processado com sucesso",
@@ -61,7 +169,6 @@ async def webhook_handler(request: Request):
         
     except Exception as e:
         logger.error(f"Erro no webhook handler: {str(e)}")
-        # Mesmo com erro, retornar sucesso para não quebrar o webhook
         return {
             "status": "success",
             "message": "Webhook processado",
@@ -73,49 +180,93 @@ async def process_message_event(data: dict):
     try:
         logger.info("=== INÍCIO DO PROCESSAMENTO DE MENSAGEM ===")
         
-        # Extrair dados da mensagem
-        message_data = data.get("data", {})
-        logger.info(f"Dados da mensagem: {json.dumps(message_data, indent=2)}")
-        
-        # Verificar se é uma mensagem de texto
-        if message_data.get("type") != "text":
-            logger.info(f"Mensagem não é texto: {message_data.get('type')}")
-            return
-        
-        # Extrair informações da mensagem
-        phone = message_data.get("from", "")
-        message_text = message_data.get("text", {}).get("body", "")
-        message_id = message_data.get("id", "")
-        
-        # Remover sufixo @c.us do telefone
-        if phone.endswith("@c.us"):
-            phone = phone[:-5]
-        
-        logger.info(f"Telefone: {phone}")
-        logger.info(f"Texto da mensagem: {message_text}")
-        logger.info(f"ID da mensagem: {message_id}")
-        
-        # Verificar se não é uma mensagem enviada por nós
-        if message_data.get("fromMe", False):
-            logger.info("Mensagem enviada por nós, ignorando")
-            return
-        
-        logger.info("Iniciando processamento com ConversationManager...")
-        
-        # Processar mensagem com o ConversationManager
-        db = next(get_db())
-        conversation_manager = ConversationManager()
-        
-        logger.info("Chamando processar_mensagem...")
-        await conversation_manager.processar_mensagem(
-            phone=phone,
-            message=message_text,
-            message_id=message_id,
-            db=db
-        )
-        
-        logger.info(f"Mensagem processada com sucesso: {phone}")
-        logger.info("=== FIM DO PROCESSAMENTO DE MENSAGEM ===")
+        # Verificar se é um ReceivedCallback (formato Z-API)
+        if data.get("type") == "ReceivedCallback":
+            logger.info("Processando ReceivedCallback do Z-API")
+            
+            # Extrair informações da mensagem
+            phone = data.get("phone", "")
+            message_text = data.get("text", {}).get("message", "")
+            message_id = data.get("messageId", "")
+            from_me = data.get("fromMe", False)
+            
+            logger.info(f"Telefone: {phone}")
+            logger.info(f"Texto da mensagem: {message_text}")
+            logger.info(f"ID da mensagem: {message_id}")
+            logger.info(f"FromMe: {from_me}")
+            
+            # Verificar se não é uma mensagem enviada por nós
+            if from_me:
+                logger.info("Mensagem enviada por nós, ignorando")
+                return
+            
+            # Verificar se é uma mensagem de texto
+            if not message_text:
+                logger.info("Mensagem sem texto, ignorando")
+                return
+            
+            logger.info("Iniciando processamento com ConversationManager...")
+            
+            # Processar mensagem com o ConversationManager
+            db = next(get_db())
+            conversation_manager = ConversationManager()
+            
+            logger.info("Chamando processar_mensagem...")
+            await conversation_manager.processar_mensagem(
+                phone=phone,
+                message=message_text,
+                message_id=message_id,
+                db=db
+            )
+            
+            logger.info(f"Mensagem processada com sucesso: {phone}")
+            logger.info("=== FIM DO PROCESSAMENTO DE MENSAGEM ===")
+            
+        else:
+            # Formato antigo (compatibilidade)
+            logger.info("Processando formato antigo")
+            message_data = data.get("data", {})
+            logger.info(f"Dados da mensagem: {json.dumps(message_data, indent=2)}")
+            
+            # Verificar se é uma mensagem de texto
+            if message_data.get("type") != "text":
+                logger.info(f"Mensagem não é texto: {message_data.get('type')}")
+                return
+            
+            # Extrair informações da mensagem
+            phone = message_data.get("from", "")
+            message_text = message_data.get("text", {}).get("body", "")
+            message_id = message_data.get("id", "")
+            
+            # Remover sufixo @c.us do telefone
+            if phone.endswith("@c.us"):
+                phone = phone[:-5]
+            
+            logger.info(f"Telefone: {phone}")
+            logger.info(f"Texto da mensagem: {message_text}")
+            logger.info(f"ID da mensagem: {message_id}")
+            
+            # Verificar se não é uma mensagem enviada por nós
+            if message_data.get("fromMe", False):
+                logger.info("Mensagem enviada por nós, ignorando")
+                return
+            
+            logger.info("Iniciando processamento com ConversationManager...")
+            
+            # Processar mensagem com o ConversationManager
+            db = next(get_db())
+            conversation_manager = ConversationManager()
+            
+            logger.info("Chamando processar_mensagem...")
+            await conversation_manager.processar_mensagem(
+                phone=phone,
+                message=message_text,
+                message_id=message_id,
+                db=db
+            )
+            
+            logger.info(f"Mensagem processada com sucesso: {phone}")
+            logger.info("=== FIM DO PROCESSAMENTO DE MENSAGEM ===")
         
     except Exception as e:
         logger.error(f"Erro ao processar mensagem: {str(e)}")
@@ -144,8 +295,8 @@ async def configure_webhook():
         logger.error(f"Erro ao configurar webhook: {str(e)}")
         raise HTTPException(status_code=500, detail="Erro interno")
 
-@router.get("/status")
-async def webhook_status():
+@router.get("/status-info")
+async def webhook_status_info():
     """Verifica o status do webhook no Z-API"""
     try:
         webhook_info = await get_zapi_webhook_status()
@@ -228,7 +379,8 @@ async def webhook_test():
             "status": "ok",
             "message": "Webhook test funcionando",
             "timestamp": datetime.now().isoformat() + "Z",
-            "webhook_url": f"https://{settings.app_host}/webhook"
+            "webhook_url": f"https://{settings.app_host}/webhook",
+            "environment": "vercel" if settings.environment == "production" else "local"
         }
     except Exception as e:
         logger.error(f"Erro no webhook test: {str(e)}")
@@ -236,30 +388,51 @@ async def webhook_test():
 
 @router.post("/test-message")
 async def test_message():
-    """Endpoint para testar processamento de mensagem"""
+    """Endpoint para testar envio de mensagem"""
     try:
-        # Simular uma mensagem de teste
-        test_data = {
-            "event": "message",
-            "data": {
-                "id": "test_123",
-                "type": "text",
-                "from": "553198600366@c.us",
-                "fromMe": False,
-                "text": {
-                    "body": "1"
-                }
-            }
-        }
-        
-        await process_message_event(test_data)
-        
+        # Simular processamento de mensagem
         return {
             "status": "success",
             "message": "Mensagem de teste processada",
             "timestamp": datetime.now().isoformat() + "Z"
         }
+    except Exception as e:
+        logger.error(f"Erro no test message: {str(e)}")
+        raise HTTPException(status_code=500, detail="Erro interno")
+
+@router.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
+async def webhook_fallback(request: Request, path: str):
+    """Endpoint de fallback para capturar rotas não mapeadas"""
+    method = request.method
+    logger.warning(f"Rota não mapeada: {method} /webhook/{path}")
+    
+    try:
+        # Tentar obter dados da requisição
+        body = await request.body()
+        data = {}
+        
+        if body:
+            try:
+                data = await request.json()
+            except:
+                data = {"raw_body": body.decode()}
+        
+        logger.info(f"Dados da requisição: {json.dumps(data, indent=2)}")
+        
+        # Retornar resposta genérica
+        return {
+            "status": "warning",
+            "message": f"Rota /webhook/{path} não mapeada",
+            "method": method,
+            "data_received": data,
+            "timestamp": datetime.now().isoformat() + "Z"
+        }
         
     except Exception as e:
-        logger.error(f"Erro no teste de mensagem: {str(e)}")
-        raise HTTPException(status_code=500, detail="Erro interno") 
+        logger.error(f"Erro no fallback: {str(e)}")
+        return {
+            "status": "error",
+            "message": f"Erro ao processar requisição para /webhook/{path}",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat() + "Z"
+        } 

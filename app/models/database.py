@@ -98,13 +98,25 @@ def get_db():
                 self.model = model
                 self.db = db
                 self._filter_conditions = []
+                self._filter_by_conditions = {}
             
             def filter(self, condition):
                 self._filter_conditions.append(condition)
                 return self
             
+            def filter_by(self, **kwargs):
+                # Simular filter_by para compatibilidade
+                self._filter_by_conditions.update(kwargs)
+                return self
+            
             def first(self):
-                # Retornar None para simular que não encontrou
+                # Buscar na lista de conversas se for Conversation
+                if self.model.__name__ == 'Conversation':
+                    phone = self._filter_by_conditions.get('phone')
+                    if phone:
+                        for conv in self.db.conversations:
+                            if conv.phone == phone:
+                                return conv
                 return None
             
             def all(self):

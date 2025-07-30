@@ -23,7 +23,7 @@ class WebhookSetup:
     def __init__(self):
         self.zapi_instance_id = os.getenv("ZAPI_INSTANCE_ID", "3E4F7360B552F0C2DBCB9E6774402775")
         self.zapi_token = os.getenv("ZAPI_TOKEN", "17829E98BB59E9ADD55BBBA9")
-        self.zapi_client_token = os.getenv("ZAPI_CLIENT_TOKEN", "17829E98BB59E9ADD55BBBA9")
+        self.zapi_client_token = os.getenv("ZAPI_CLIENT_TOKEN", "F909fc109aad54566bf42a6d09f00a8dbS")
         self.zapi_base_url = os.getenv("ZAPI_BASE_URL", "https://api.z-api.io")
         self.webhook_url = os.getenv("WEBHOOK_URL", "")
         

@@ -63,7 +63,7 @@ def test_zapi_connection():
     # Credenciais Z-API
     instance_id = "3E4F7360B552F0C2DBCB9E6774402775"
     token = "17829E98BB59E9ADD55BBBA9"
-    client_token = "17829E98BB59E9ADD55BBBA9"
+    client_token = "F909fc109aad54566bf42a6d09f00a8dbS"
     
     try:
         # Testar status da instância

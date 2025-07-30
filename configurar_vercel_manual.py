@@ -15,7 +15,7 @@ def generate_manual_instructions():
         # Z-API Configuration
         "ZAPI_INSTANCE_ID": "3E4F7360B552F0C2DBCB9E6774402775",
         "ZAPI_TOKEN": "17829E98BB59E9ADD55BBBA9",
-        "ZAPI_CLIENT_TOKEN": "17829E98BB59E9ADD55BBBA9",
+        "ZAPI_CLIENT_TOKEN": "F909fc109aad54566bf42a6d09f00a8dbS",
         "ZAPI_BASE_URL": "https://api.z-api.io",
         
         # Supabase Configuration
@@ -115,7 +115,7 @@ def create_env_file():
 # Z-API Configuration
 ZAPI_INSTANCE_ID=3E4F7360B552F0C2DBCB9E6774402775
 ZAPI_TOKEN=17829E98BB59E9ADD55BBBA9
-ZAPI_CLIENT_TOKEN=17829E98BB59E9ADD55BBBA9
+ZAPI_CLIENT_TOKEN=F909fc109aad54566bf42a6d09f00a8dbS
 ZAPI_BASE_URL=https://api.z-api.io
 
 # Supabase Configuration
