@@ -1,8 +1,9 @@
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
 from datetime import datetime
 import logging
 import json
 import uuid
+import os
 from app.config import settings
 from app.services.gestaods_widget import GestaoDSWidget
 from app.services.supabase_service import SupabaseService
@@ -14,6 +15,9 @@ router = APIRouter()
 active_connections = []
 MAX_CONNECTIONS = 50  # Limite máximo de conexões para produção
 
+# Verificar se estamos no Vercel (serverless)
+IS_VERCEL = os.getenv('VERCEL', '0') == '1'
+
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """WebSocket endpoint para atualizações em tempo real"""
@@ -22,38 +26,60 @@ async def websocket_endpoint(websocket: WebSocket):
         await websocket.close(code=1008, reason="WebSocket disabled")
         return
     
+    # Em ambiente serverless, limitar conexões WebSocket
+    if IS_VERCEL and len(active_connections) >= 10:
+        logger.warning(f"Limite de conexões WebSocket atingido em Vercel ({len(active_connections)})")
+        await websocket.close(code=1008, reason="Too many connections")
+        return
+    
     # Verificar limite de conexões
     if len(active_connections) >= MAX_CONNECTIONS:
         logger.warning(f"Limite de conexões WebSocket atingido ({MAX_CONNECTIONS})")
         await websocket.close(code=1008, reason="Too many connections")
         return
     
-    await websocket.accept()
-    connection_id = str(uuid.uuid4())[:8]
-    active_connections.append(websocket)
-    
-    logger.info(f"WebSocket conectado - ID: {connection_id}, Total: {len(active_connections)}")
-    
     try:
+        await websocket.accept()
+        connection_id = str(uuid.uuid4())[:8]
+        active_connections.append(websocket)
+        
+        logger.info(f"WebSocket conectado - ID: {connection_id}, Total: {len(active_connections)}")
+        
+        # Em ambiente serverless, manter conexão por tempo limitado
+        max_messages = 100 if IS_VERCEL else 1000
+        message_count = 0
+        
         while True:
             # Keep connection alive - aguardar mensagem do cliente
             data = await websocket.receive_text()
+            message_count += 1
             logger.debug(f"Mensagem recebida do WebSocket {connection_id}: {data}")
+            
+            # Em ambiente serverless, limitar número de mensagens
+            if IS_VERCEL and message_count >= max_messages:
+                logger.info(f"Limite de mensagens atingido para WebSocket {connection_id}")
+                break
             
             # Responder com confirmação
             await websocket.send_text(json.dumps({
                 "type": "pong",
                 "timestamp": datetime.utcnow().isoformat(),
-                "connection_id": connection_id
+                "connection_id": connection_id,
+                "message_count": message_count
             }))
             
     except WebSocketDisconnect:
-        active_connections.remove(websocket)
+        if websocket in active_connections:
+            active_connections.remove(websocket)
         logger.info(f"WebSocket desconectado - ID: {connection_id}, Total: {len(active_connections)}")
     except Exception as e:
         logger.error(f"Erro no WebSocket {connection_id}: {str(e)}")
         if websocket in active_connections:
             active_connections.remove(websocket)
+        try:
+            await websocket.close(code=1011, reason="Internal error")
+        except:
+            pass
 
 async def broadcast_message(message: dict):
     """Envia mensagem para todos os clientes WebSocket conectados"""
@@ -72,72 +98,42 @@ async def broadcast_message(message: dict):
 @router.patch("/conversations/{conversation_id}")
 async def update_conversation(conversation_id: str, updates: dict):
     """Atualiza uma conversa"""
-    # In a real implementation, this would update the database
-    # For now, just return success
-    return {
-        "id": conversation_id,
-        "status": "success",
-        "message": "Conversa atualizada com sucesso"
-    }
+    try:
+        # In a real implementation, this would update the database
+        # For now, just return success
+        return {
+            "id": conversation_id,
+            "status": "success",
+            "message": "Conversa atualizada com sucesso"
+        }
+    except Exception as e:
+        logger.error(f"Erro ao atualizar conversa: {str(e)}")
+        raise HTTPException(status_code=500, detail="Erro interno")
 
 @router.post("/conversations/{conversation_id}/notes")
 async def add_note(conversation_id: str, note_data: dict):
     """Adiciona uma nota a uma conversa"""
-    # In a real implementation, this would save to database
-    # For now, just return success
-    return {
-        "id": str(uuid.uuid4()),
-        "conversation_id": conversation_id,
-        "note": note_data.get("note", ""),
-        "created_by": note_data.get("created_by", "admin"),
-        "created_at": datetime.utcnow().isoformat()
-    }
+    try:
+        # In a real implementation, this would save to database
+        # For now, just return success
+        return {
+            "id": str(uuid.uuid4()),
+            "conversation_id": conversation_id,
+            "note": note_data.get("note", ""),
+            "created_by": note_data.get("created_by", "admin"),
+            "created_at": datetime.utcnow().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Erro ao adicionar nota: {str(e)}")
+        raise HTTPException(status_code=500, detail="Erro interno")
 
 @router.get("/conversations/{conversation_id}")
 async def get_conversation_detail(conversation_id: str):
     """Obtém detalhes de uma conversa específica"""
-    # Sample conversation detail
-    sample_conversation = {
-        "id": conversation_id,
-        "phone": "5531999999999",
-        "patient_name": "Maria Silva",
-        "status": "pending",
-        "priority": 2,
-        "ai_summary": "Paciente solicitando agendamento de consulta para próxima semana",
-        "tags": ["agendamento", "consulta"],
-        "message_count": 5,
-        "last_message_at": "2024-01-15T10:30:00Z",
-        "messages": [
-            {
-                "id": "1",
-                "sender": "user",
-                "message": "Olá, gostaria de agendar uma consulta",
-                "timestamp": "2024-01-15T10:00:00Z"
-            },
-            {
-                "id": "2", 
-                "sender": "bot",
-                "message": "Olá! Claro, posso ajudá-lo a agendar uma consulta. Qual especialidade você precisa?",
-                "timestamp": "2024-01-15T10:01:00Z"
-            },
-            {
-                "id": "3",
-                "sender": "user", 
-                "message": "Preciso de um cardiologista",
-                "timestamp": "2024-01-15T10:02:00Z"
-            }
-        ],
-        "notes": []
-    }
-    return sample_conversation
-
-@router.get("/conversations")
-async def list_conversations():
-    """Lista todas as conversas - versão simplificada para teste"""
-    # Sample data for testing
-    sample_conversations = [
-        {
-            "id": "1",
+    try:
+        # Sample conversation detail
+        sample_conversation = {
+            "id": conversation_id,
             "phone": "5531999999999",
             "patient_name": "Maria Silva",
             "status": "pending",
@@ -145,32 +141,78 @@ async def list_conversations():
             "ai_summary": "Paciente solicitando agendamento de consulta para próxima semana",
             "tags": ["agendamento", "consulta"],
             "message_count": 5,
-            "last_message_at": "2024-01-15T10:30:00Z"
-        },
-        {
-            "id": "2", 
-            "phone": "5531888888888",
-            "patient_name": "João Santos",
-            "status": "in_progress",
-            "priority": 1,
-            "ai_summary": "Paciente com dúvidas sobre horários de atendimento",
-            "tags": ["horários", "dúvida"],
-            "message_count": 3,
-            "last_message_at": "2024-01-15T09:15:00Z"
-        },
-        {
-            "id": "3",
-            "phone": "5531777777777", 
-            "patient_name": "Ana Costa",
-            "status": "requires_attention",
-            "priority": 3,
-            "ai_summary": "Paciente com urgência médica - precisa de atendimento imediato",
-            "tags": ["urgência", "emergência"],
-            "message_count": 8,
-            "last_message_at": "2024-01-15T11:45:00Z"
+            "last_message_at": "2024-01-15T10:30:00Z",
+            "messages": [
+                {
+                    "id": "1",
+                    "sender": "user",
+                    "message": "Olá, gostaria de agendar uma consulta",
+                    "timestamp": "2024-01-15T10:00:00Z"
+                },
+                {
+                    "id": "2", 
+                    "sender": "bot",
+                    "message": "Olá! Claro, posso ajudá-lo a agendar uma consulta. Qual especialidade você precisa?",
+                    "timestamp": "2024-01-15T10:01:00Z"
+                },
+                {
+                    "id": "3",
+                    "sender": "user", 
+                    "message": "Preciso de um cardiologista",
+                    "timestamp": "2024-01-15T10:02:00Z"
+                }
+            ],
+            "notes": []
         }
-    ]
-    return sample_conversations
+        return sample_conversation
+    except Exception as e:
+        logger.error(f"Erro ao obter detalhes da conversa: {str(e)}")
+        raise HTTPException(status_code=500, detail="Erro interno")
+
+@router.get("/conversations")
+async def list_conversations():
+    """Lista todas as conversas - versão simplificada para teste"""
+    try:
+        # Sample data for testing
+        sample_conversations = [
+            {
+                "id": "1",
+                "phone": "5531999999999",
+                "patient_name": "Maria Silva",
+                "status": "pending",
+                "priority": 2,
+                "ai_summary": "Paciente solicitando agendamento de consulta para próxima semana",
+                "tags": ["agendamento", "consulta"],
+                "message_count": 5,
+                "last_message_at": "2024-01-15T10:30:00Z"
+            },
+            {
+                "id": "2", 
+                "phone": "5531888888888",
+                "patient_name": "João Santos",
+                "status": "in_progress",
+                "priority": 1,
+                "ai_summary": "Paciente com dúvidas sobre horários de atendimento",
+                "tags": ["horários", "dúvida"],
+                "message_count": 3,
+                "last_message_at": "2024-01-15T09:15:00Z"
+            },
+            {
+                "id": "3",
+                "phone": "5531777777777", 
+                "patient_name": "Ana Costa",
+                "status": "requires_attention",
+                "priority": 3,
+                "ai_summary": "Paciente com urgência médica - precisa de atendimento imediato",
+                "tags": ["urgência", "emergência"],
+                "message_count": 8,
+                "last_message_at": "2024-01-15T11:45:00Z"
+            }
+        ]
+        return sample_conversations
+    except Exception as e:
+        logger.error(f"Erro ao listar conversas: {str(e)}")
+        raise HTTPException(status_code=500, detail="Erro interno")
 
 @router.get("/analytics/summary")
 async def get_analytics_summary():

@@ -16,15 +16,26 @@ class SupabaseService:
         self.anon_key = settings.supabase_anon_key
         self.service_role_key = settings.supabase_service_role_key
         
+        # Verificar se as configurações estão presentes
+        if not self.base_url or not self.anon_key:
+            logger.warning("Configurações do Supabase não encontradas. Serviço funcionará em modo mock.")
+            self.mock_mode = True
+        else:
+            self.mock_mode = False
+        
         self.headers = {
-            "apikey": self.anon_key,
-            "Authorization": f"Bearer {self.anon_key}",
+            "apikey": self.anon_key or "",
+            "Authorization": f"Bearer {self.anon_key or ''}",
             "Content-Type": "application/json",
             "Prefer": "return=representation"
         }
     
     async def test_connection(self) -> bool:
         """Testa conexão com Supabase"""
+        if self.mock_mode:
+            logger.info("Modo mock ativo - retornando sucesso simulado")
+            return True
+            
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.get(
@@ -39,6 +50,16 @@ class SupabaseService:
     
     async def create_conversation(self, phone: str, state: str = "inicio", context: Dict = None) -> Optional[Dict]:
         """Cria nova conversa"""
+        if self.mock_mode:
+            logger.info(f"Modo mock - criando conversa simulada para {phone}")
+            return {
+                "id": "mock-conversation-id",
+                "phone": phone,
+                "state": state,
+                "context": context or {},
+                "created_at": datetime.utcnow().isoformat()
+            }
+            
         try:
             payload = {
                 "phone": phone,
@@ -66,6 +87,16 @@ class SupabaseService:
     
     async def get_conversation(self, phone: str) -> Optional[Dict]:
         """Busca conversa por telefone"""
+        if self.mock_mode:
+            logger.info(f"Modo mock - buscando conversa simulada para {phone}")
+            return {
+                "id": "mock-conversation-id",
+                "phone": phone,
+                "state": "inicio",
+                "context": {},
+                "created_at": datetime.utcnow().isoformat()
+            }
+            
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.get(
