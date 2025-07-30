@@ -2,7 +2,7 @@ import axios from 'axios';
 
 // Configuração para produção vs desenvolvimento
 const isDevelopment = process.env.NODE_ENV === 'development';
-const API_BASE_URL = isDevelopment ? '/dashboard' : process.env.REACT_APP_API_URL || 'https://seu-backend.vercel.app/dashboard';
+const API_BASE_URL = isDevelopment ? '/dashboard' : process.env.REACT_APP_API_URL || 'https://chatbot-nassif.vercel.app/dashboard';
 
 const api = axios.create({
   baseURL: API_BASE_URL,

@@ -7,7 +7,6 @@ import os
 from app.config import settings
 from app.handlers.webhook import router as webhook_router
 from app.handlers.dashboard import router as dashboard_router
-from contextlib import asynccontextmanager
 
 # Configurar logging
 logging.basicConfig(
@@ -23,59 +22,11 @@ logger = logging.getLogger(__name__)
 # Verificar se estamos no Vercel
 IS_VERCEL = os.getenv('VERCEL', '0') == '1'
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Gerencia ciclo de vida da aplicação"""
-    # Startup
-    logger.info("Iniciando aplicação...")
-    
-    if not IS_VERCEL:
-        # Só iniciar scheduler em ambiente local
-        try:
-            from apscheduler.schedulers.asyncio import AsyncIOScheduler
-            from app.tasks.reminders import ReminderService
-            
-            scheduler = AsyncIOScheduler()
-            reminder_service = ReminderService()
-
-            scheduler.add_job(
-                reminder_service.enviar_lembretes_diarios,
-                'cron',
-                hour=settings.reminder_hour,
-                minute=settings.reminder_minute
-            )
-
-            scheduler.add_job(
-                reminder_service.verificar_cancelamentos,
-                'interval',
-                minutes=30
-            )
-
-            scheduler.start()
-            logger.info("Scheduler iniciado (ambiente local)")
-        except Exception as e:
-            logger.warning(f"Não foi possível iniciar scheduler: {e}")
-    else:
-        logger.info("Executando no Vercel - scheduler desabilitado")
-
-    yield
-
-    # Shutdown
-    if not IS_VERCEL:
-        try:
-            scheduler.shutdown()
-            logger.info("Scheduler encerrado")
-        except:
-            pass
-    
-    logger.info("Aplicação encerrada")
-
 # Criar aplicação FastAPI
 app = FastAPI(
     title="Chatbot Clínica WhatsApp",
     description="Assistente virtual para agendamento de consultas",
-    version="1.0.0",
-    lifespan=lifespan
+    version="1.0.0"
 )
 
 # Configurar CORS
