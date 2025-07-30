@@ -4,9 +4,9 @@ import os
 
 class Settings(BaseSettings):
     # Z-API
-    zapi_instance_id: str
-    zapi_token: str
-    zapi_client_token: str
+    zapi_instance_id: str = ""
+    zapi_token: str = ""
+    zapi_client_token: str = ""
     zapi_base_url: str = "https://api.z-api.io"
 
     # GestãoDS
@@ -36,8 +36,8 @@ class Settings(BaseSettings):
     cors_allow_credentials: bool = True
 
     # Clinic
-    clinic_name: str
-    clinic_phone: str
+    clinic_name: str = "Clínica Nassif"
+    clinic_phone: str = ""
     reminder_hour: int = 18
     reminder_minute: int = 0
 

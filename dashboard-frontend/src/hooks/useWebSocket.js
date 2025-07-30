@@ -10,11 +10,18 @@ export function useWebSocket(onMessage) {
     
     // Delay inicial para dar tempo do backend inicializar
     const initialDelay = setTimeout(() => {
-      // Conectar diretamente na porta 8000 (backend)
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const host = '127.0.0.1'; // Usar IP explícito para evitar problemas de DNS
-      const port = '8000';
-      const wsUrl = `${protocol}//${host}:${port}/dashboard/ws`;
+      // Configurar URL do WebSocket baseada no ambiente
+      let wsUrl;
+      if (process.env.NODE_ENV === 'development') {
+        // Em desenvolvimento, conectar localmente
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const host = '127.0.0.1';
+        const port = '8000';
+        wsUrl = `${protocol}//${host}:${port}/dashboard/ws`;
+      } else {
+        // Em produção, usar a URL do backend no Vercel
+        wsUrl = process.env.REACT_APP_WEBSOCKET_URL || 'wss://chatbot-nassif.vercel.app/dashboard/ws';
+      }
       
       console.log('Tentando conectar WebSocket:', wsUrl);
       

@@ -3,6 +3,7 @@ from datetime import datetime
 import logging
 import json
 import uuid
+from app.config import settings
 from app.services.gestaods_widget import GestaoDSWidget
 from app.services.supabase_service import SupabaseService
 

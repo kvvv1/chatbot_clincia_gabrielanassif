@@ -1,58 +1,73 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from contextlib import asynccontextmanager
 import logging
 import sys
+import os
 
 from app.config import settings
 from app.handlers.webhook import router as webhook_router
 from app.handlers.dashboard import router as dashboard_router
-from app.tasks.reminders import ReminderService
+from contextlib import asynccontextmanager
 
 # Configurar logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('chatbot.log'),
         logging.StreamHandler(sys.stdout)
     ]
 )
 
 logger = logging.getLogger(__name__)
 
-# Scheduler global
-scheduler = AsyncIOScheduler()
-reminder_service = ReminderService()
+# Verificar se estamos no Vercel
+IS_VERCEL = os.getenv('VERCEL', '0') == '1'
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Gerencia ciclo de vida da aplicação"""
     # Startup
     logger.info("Iniciando aplicação...")
+    
+    if not IS_VERCEL:
+        # Só iniciar scheduler em ambiente local
+        try:
+            from apscheduler.schedulers.asyncio import AsyncIOScheduler
+            from app.tasks.reminders import ReminderService
+            
+            scheduler = AsyncIOScheduler()
+            reminder_service = ReminderService()
 
-    # Configurar tarefas agendadas
-    scheduler.add_job(
-        reminder_service.enviar_lembretes_diarios,
-        'cron',
-        hour=settings.reminder_hour,
-        minute=settings.reminder_minute
-    )
+            scheduler.add_job(
+                reminder_service.enviar_lembretes_diarios,
+                'cron',
+                hour=settings.reminder_hour,
+                minute=settings.reminder_minute
+            )
 
-    scheduler.add_job(
-        reminder_service.verificar_cancelamentos,
-        'interval',
-        minutes=30
-    )
+            scheduler.add_job(
+                reminder_service.verificar_cancelamentos,
+                'interval',
+                minutes=30
+            )
 
-    scheduler.start()
-    logger.info("Scheduler iniciado")
+            scheduler.start()
+            logger.info("Scheduler iniciado (ambiente local)")
+        except Exception as e:
+            logger.warning(f"Não foi possível iniciar scheduler: {e}")
+    else:
+        logger.info("Executando no Vercel - scheduler desabilitado")
 
     yield
 
     # Shutdown
-    scheduler.shutdown()
+    if not IS_VERCEL:
+        try:
+            scheduler.shutdown()
+            logger.info("Scheduler encerrado")
+        except:
+            pass
+    
     logger.info("Aplicação encerrada")
 
 # Criar aplicação FastAPI
@@ -83,7 +98,17 @@ async def root():
     return {
         "status": "online",
         "service": "Chatbot Clínica",
-        "version": "1.0.0"
+        "version": "1.0.0",
+        "environment": "vercel" if IS_VERCEL else "local"
+    }
+
+@app.get("/test")
+async def test_endpoint():
+    """Endpoint de teste simples"""
+    return {
+        "message": "Backend funcionando!",
+        "environment": "vercel" if IS_VERCEL else "local",
+        "timestamp": "2024-01-01T00:00:00Z"
     }
 
 @app.get("/health")
@@ -93,14 +118,9 @@ async def health_check():
         "status": "healthy",
         "database": "connected",
         "whatsapp": "connected",
-        "scheduler": scheduler.running
+        "environment": "vercel" if IS_VERCEL else "local"
     }
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(
-        "app.main:app",
-        host=settings.app_host,
-        port=settings.app_port,
-        reload=settings.debug
-    ) 
+    uvicorn.run(app, host="0.0.0.0", port=8000) 
