@@ -1,3 +1,5 @@
+# Vercel Deployment Fix - 2025-07-30
+# Corrigido problema de FileHandler no logging
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -69,7 +71,7 @@ async def root():
             "version": "1.0.0",
             "environment": "vercel" if IS_VERCEL else "local",
             "timestamp": datetime.now().isoformat() + "Z",
-            "deploy_version": "2025-07-30-v2"
+            "deploy_version": "2025-07-30-v3-fixed"
         }
     except Exception as e:
         logger.error(f"Erro no endpoint root: {str(e)}")
