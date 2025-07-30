@@ -15,10 +15,10 @@ class Settings(BaseSettings):
 
     # GestãoDS
     gestaods_api_url: str = "https://apidev.gestaods.com.br"
-    gestaods_token: str = "733a8e19a94b65d58390da380ac946b6d603a535"
+    gestaods_token: Optional[str] = "733a8e19a94b65d58390da380ac946b6d603a535"
 
     # Database
-    database_url: str = "postgresql://postgres:password@localhost:5432/chatbot_clinica"
+    database_url: Optional[str] = "postgresql://postgres:password@localhost:5432/chatbot_clinica"
     
     # Supabase
     supabase_url: Optional[str] = ""

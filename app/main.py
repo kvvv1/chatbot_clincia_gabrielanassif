@@ -22,6 +22,20 @@ IS_VERCEL = os.getenv('VERCEL', '0') == '1'
 
 logger.info(f"Iniciando aplicação FastAPI - Ambiente: {'Vercel' if IS_VERCEL else 'Local'}")
 
+# Inicializar configurações de forma segura
+try:
+    from app.config import settings
+    logger.info("Configurações carregadas com sucesso")
+except Exception as e:
+    logger.error(f"Erro ao carregar configurações: {str(e)}")
+    logger.info("Aplicação continuará com configurações mínimas")
+    # Criar objeto de configurações mínimas
+    class MinimalSettings:
+        environment = "vercel" if IS_VERCEL else "development"
+        debug = False if IS_VERCEL else True
+        websocket_enabled = False
+    settings = MinimalSettings()
+
 # Criar aplicação FastAPI
 app = FastAPI(
     title="Chatbot Clínica WhatsApp",
@@ -155,6 +169,7 @@ try:
     logger.info("Router webhook carregado com sucesso")
 except Exception as e:
     logger.error(f"Erro ao carregar webhook router: {str(e)}")
+    logger.info("Webhook router não disponível - usando apenas endpoints básicos")
 
 # Tentar incluir dashboard router (pode sobrescrever fallback se bem-sucedido)
 try:
