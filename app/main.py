@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import logging
@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 
 # Verificar se estamos no Vercel
 IS_VERCEL = os.getenv('VERCEL', '0') == '1'
+
+logger.info(f"Iniciando aplicação FastAPI - Ambiente: {'Vercel' if IS_VERCEL else 'Local'}")
 
 # Criar aplicação FastAPI
 app = FastAPI(
@@ -126,36 +128,42 @@ async def debug_info():
         logger.error(f"Erro no debug endpoint: {str(e)}")
         return {"error": str(e)}
 
+# Criar router de fallback sempre disponível
+from fastapi import APIRouter
+
+fallback_router = APIRouter()
+
+@fallback_router.get("/test")
+async def fallback_test():
+    return {"status": "fallback", "message": "Router de fallback funcionando"}
+
+@fallback_router.get("/status")
+async def fallback_status():
+    return {
+        "status": "fallback",
+        "message": "Dashboard API funcionando (modo fallback)",
+        "environment": "vercel" if IS_VERCEL else "local"
+    }
+
+# Sempre incluir o router de fallback primeiro
+app.include_router(fallback_router, prefix="/dashboard", tags=["dashboard"])
+
 # Tentar incluir routers apenas se não houver erro
 try:
     from app.handlers.webhook import router as webhook_router
-    from app.handlers.dashboard import router as dashboard_router
-    
     app.include_router(webhook_router, prefix="/webhook", tags=["webhook"])
-    app.include_router(dashboard_router, prefix="/dashboard", tags=["dashboard"])
-    logger.info("Routers carregados com sucesso")
+    logger.info("Router webhook carregado com sucesso")
 except Exception as e:
-    logger.error(f"Erro ao carregar routers: {str(e)}")
-    logger.error(f"Traceback: {traceback.format_exc()}")
-    
-    # Criar router básico de fallback
-    from fastapi import APIRouter
-    
-    fallback_router = APIRouter()
-    
-    @fallback_router.get("/test")
-    async def fallback_test():
-        return {"status": "fallback", "message": "Router de fallback funcionando"}
-    
-    @fallback_router.get("/status")
-    async def fallback_status():
-        return {
-            "status": "fallback",
-            "message": "Dashboard API funcionando (modo fallback)",
-            "environment": "vercel" if IS_VERCEL else "local"
-        }
-    
-    app.include_router(fallback_router, prefix="/dashboard", tags=["dashboard"])
+    logger.error(f"Erro ao carregar webhook router: {str(e)}")
+
+# Tentar incluir dashboard router (pode sobrescrever fallback se bem-sucedido)
+try:
+    from app.handlers.dashboard import router as dashboard_router
+    app.include_router(dashboard_router, prefix="/dashboard-advanced", tags=["dashboard-advanced"])
+    logger.info("Router dashboard avançado carregado com sucesso")
+except Exception as e:
+    logger.error(f"Erro ao carregar dashboard router: {str(e)}")
+    logger.info("Usando apenas router de fallback para dashboard")
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
