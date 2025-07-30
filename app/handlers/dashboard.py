@@ -21,6 +21,12 @@ IS_VERCEL = os.getenv('VERCEL', '0') == '1'
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """WebSocket endpoint para atualizações em tempo real"""
+    # Desabilitar WebSocket em ambiente serverless
+    if IS_VERCEL:
+        logger.warning("WebSocket desabilitado em ambiente serverless (Vercel)")
+        await websocket.close(code=1008, reason="WebSocket not supported in serverless environment")
+        return
+    
     # Verificar se WebSocket está habilitado
     if not getattr(settings, 'websocket_enabled', True):
         await websocket.close(code=1008, reason="WebSocket disabled")
@@ -245,6 +251,12 @@ async def test_endpoint():
 @router.get("/ws-test")
 async def websocket_test():
     """Teste se o endpoint WebSocket está acessível"""
+    if IS_VERCEL:
+        return {
+            "status": "warning", 
+            "message": "WebSocket não suportado em ambiente serverless (Vercel)",
+            "environment": "serverless"
+        }
     return {"status": "ok", "message": "WebSocket endpoint está acessível"}
 
 async def process_new_conversation(phone: str, messages: list, db):
@@ -258,10 +270,41 @@ async def process_new_conversation(phone: str, messages: list, db):
         logger.error(f"Erro ao processar conversa: {str(e)}")
         return {"status": "error", "message": str(e)}
 
+@router.get("/status")
+async def get_status():
+    """Endpoint de status para verificar se a API está funcionando"""
+    try:
+        return {
+            "status": "ok",
+            "message": "Dashboard API funcionando!",
+            "environment": "vercel" if IS_VERCEL else "local",
+            "timestamp": datetime.utcnow().isoformat(),
+            "config": {
+                "supabase_configured": bool(settings.supabase_url and settings.supabase_anon_key),
+                "websocket_enabled": getattr(settings, 'websocket_enabled', True),
+                "serverless": IS_VERCEL
+            }
+        }
+    except Exception as e:
+        logger.error(f"Erro no endpoint status: {str(e)}")
+        return {
+            "status": "error",
+            "message": str(e),
+            "environment": "vercel" if IS_VERCEL else "local"
+        }
+
 @router.get("/supabase/test")
 async def test_supabase_connection():
     """Testa conexão com Supabase"""
     try:
+        # Verificar se as configurações do Supabase estão presentes
+        if not settings.supabase_url or not settings.supabase_anon_key:
+            return {
+                "status": "warning", 
+                "message": "Configurações do Supabase não encontradas",
+                "environment": "vercel" if IS_VERCEL else "local"
+            }
+        
         supabase = SupabaseService()
         is_connected = await supabase.test_connection()
         
@@ -277,6 +320,14 @@ async def test_supabase_connection():
 async def get_supabase_stats():
     """Obtém estatísticas do Supabase"""
     try:
+        # Verificar se as configurações do Supabase estão presentes
+        if not settings.supabase_url or not settings.supabase_anon_key:
+            return {
+                "status": "warning", 
+                "message": "Configurações do Supabase não encontradas",
+                "environment": "vercel" if IS_VERCEL else "local"
+            }
+        
         supabase = SupabaseService()
         stats = await supabase.get_dashboard_stats()
         return {"status": "success", "stats": stats}
@@ -288,6 +339,14 @@ async def get_supabase_stats():
 async def create_supabase_conversation(conversation_data: dict):
     """Cria conversa no Supabase"""
     try:
+        # Verificar se as configurações do Supabase estão presentes
+        if not settings.supabase_url or not settings.supabase_anon_key:
+            return {
+                "status": "warning", 
+                "message": "Configurações do Supabase não encontradas",
+                "environment": "vercel" if IS_VERCEL else "local"
+            }
+        
         supabase = SupabaseService()
         result = await supabase.create_conversation(
             phone=conversation_data.get("phone"),
@@ -307,6 +366,14 @@ async def create_supabase_conversation(conversation_data: dict):
 async def get_supabase_conversation(phone: str):
     """Busca conversa no Supabase"""
     try:
+        # Verificar se as configurações do Supabase estão presentes
+        if not settings.supabase_url or not settings.supabase_anon_key:
+            return {
+                "status": "warning", 
+                "message": "Configurações do Supabase não encontradas",
+                "environment": "vercel" if IS_VERCEL else "local"
+            }
+        
         supabase = SupabaseService()
         result = await supabase.get_conversation(phone)
         

@@ -1,0 +1,17 @@
+# Exclude backend files from frontend deployment
+../app/
+../requirements*.txt
+../vercel.json
+../docker-compose.yml
+../Dockerfile
+../*.py
+../*.md
+../.env*
+../venv/
+../__pycache__/
+../*.pyc
+../tests/
+../scripts/
+../pytest.ini
+../setup.py
+../start_services.* 

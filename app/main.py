@@ -6,11 +6,7 @@ import sys
 import os
 import traceback
 
-from app.config import settings
-from app.handlers.webhook import router as webhook_router
-from app.handlers.dashboard import router as dashboard_router
-
-# Configurar logging mais detalhado para Vercel
+# Configurar logging básico
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -32,11 +28,10 @@ app = FastAPI(
 )
 
 # Configurar CORS
-origins = settings.cors_origins.split(",") if settings.cors_origins != "*" else ["*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=settings.cors_allow_credentials,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -55,18 +50,12 @@ async def catch_exceptions_middleware(request: Request, call_next):
             content={
                 "error": "Internal server error",
                 "message": "Ocorreu um erro interno no servidor",
-                "environment": "vercel" if IS_VERCEL else "local"
+                "environment": "vercel" if IS_VERCEL else "local",
+                "details": str(e)
             }
         )
 
-# Incluir routers
-try:
-    app.include_router(webhook_router, prefix="/webhook", tags=["webhook"])
-    app.include_router(dashboard_router, prefix="/dashboard", tags=["dashboard"])
-    logger.info("Routers carregados com sucesso")
-except Exception as e:
-    logger.error(f"Erro ao carregar routers: {str(e)}")
-
+# Endpoints básicos
 @app.get("/")
 async def root():
     """Endpoint de saúde"""
@@ -99,24 +88,15 @@ async def test_endpoint():
 async def health_check():
     """Verificação de saúde detalhada"""
     try:
-        # Verificar configurações básicas
-        health_status = {
+        return {
             "status": "healthy",
             "environment": "vercel" if IS_VERCEL else "local",
             "config": {
-                "supabase_url": bool(settings.supabase_url),
-                "supabase_anon_key": bool(settings.supabase_anon_key),
-                "zapi_instance_id": bool(settings.zapi_instance_id),
-                "gestaods_token": bool(settings.gestaods_token)
+                "vercel": IS_VERCEL,
+                "python_version": sys.version,
+                "python_path": sys.path
             }
         }
-        
-        # Verificar se as configurações essenciais estão presentes
-        if not settings.supabase_url or not settings.supabase_anon_key:
-            health_status["status"] = "warning"
-            health_status["message"] = "Configurações do Supabase não encontradas"
-        
-        return health_status
     except Exception as e:
         logger.error(f"Erro no health check: {str(e)}")
         return {
@@ -124,6 +104,58 @@ async def health_check():
             "message": str(e),
             "environment": "vercel" if IS_VERCEL else "local"
         }
+
+@app.get("/debug")
+async def debug_info():
+    """Informações de debug para desenvolvimento"""
+    try:
+        return {
+            "environment": "vercel" if IS_VERCEL else "local",
+            "env_vars": {
+                "VERCEL": os.getenv('VERCEL'),
+                "NODE_ENV": os.getenv('NODE_ENV'),
+                "PYTHONPATH": os.getenv('PYTHONPATH')
+            },
+            "python_info": {
+                "version": sys.version,
+                "executable": sys.executable,
+                "path": sys.path[:5]  # Primeiros 5 elementos
+            }
+        }
+    except Exception as e:
+        logger.error(f"Erro no debug endpoint: {str(e)}")
+        return {"error": str(e)}
+
+# Tentar incluir routers apenas se não houver erro
+try:
+    from app.handlers.webhook import router as webhook_router
+    from app.handlers.dashboard import router as dashboard_router
+    
+    app.include_router(webhook_router, prefix="/webhook", tags=["webhook"])
+    app.include_router(dashboard_router, prefix="/dashboard", tags=["dashboard"])
+    logger.info("Routers carregados com sucesso")
+except Exception as e:
+    logger.error(f"Erro ao carregar routers: {str(e)}")
+    logger.error(f"Traceback: {traceback.format_exc()}")
+    
+    # Criar router básico de fallback
+    from fastapi import APIRouter
+    
+    fallback_router = APIRouter()
+    
+    @fallback_router.get("/test")
+    async def fallback_test():
+        return {"status": "fallback", "message": "Router de fallback funcionando"}
+    
+    @fallback_router.get("/status")
+    async def fallback_status():
+        return {
+            "status": "fallback",
+            "message": "Dashboard API funcionando (modo fallback)",
+            "environment": "vercel" if IS_VERCEL else "local"
+        }
+    
+    app.include_router(fallback_router, prefix="/dashboard", tags=["dashboard"])
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
@@ -135,7 +167,8 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={
             "error": "Internal server error",
             "message": "Ocorreu um erro interno no servidor",
-            "environment": "vercel" if IS_VERCEL else "local"
+            "environment": "vercel" if IS_VERCEL else "local",
+            "details": str(exc)
         }
     )
 
