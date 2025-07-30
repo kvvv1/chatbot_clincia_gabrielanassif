@@ -34,22 +34,44 @@ function ConversationList({ conversations, loading, selectedId, onSelect }) {
     );
   }
 
-  const getPriorityColor = (priority) => {
-    switch (priority) {
-      case 3: return 'bg-red-500';
-      case 2: return 'bg-orange-500';
-      case 1: return 'bg-yellow-500';
-      default: return 'bg-green-500';
+  const getStateColor = (state) => {
+    switch (state) {
+      case 'inicio': return 'bg-green-500';
+      case 'menu_principal': return 'bg-blue-500';
+      case 'aguardando_cpf': return 'bg-yellow-500';
+      case 'escolhendo_data': return 'bg-purple-500';
+      case 'escolhendo_horario': return 'bg-indigo-500';
+      case 'confirmando_agendamento': return 'bg-orange-500';
+      case 'visualizando_agendamentos': return 'bg-cyan-500';
+      case 'cancelando_consulta': return 'bg-red-500';
+      case 'lista_espera': return 'bg-pink-500';
+      default: return 'bg-gray-500';
     }
   };
 
-  const getPriorityText = (priority) => {
-    switch (priority) {
-      case 3: return 'Urgente';
-      case 2: return 'Alta';
-      case 1: return 'Média';
-      default: return 'Baixa';
+  const getStateText = (state) => {
+    switch (state) {
+      case 'inicio': return 'Início';
+      case 'menu_principal': return 'Menu Principal';
+      case 'aguardando_cpf': return 'Aguardando CPF';
+      case 'escolhendo_data': return 'Escolhendo Data';
+      case 'escolhendo_horario': return 'Escolhendo Horário';
+      case 'confirmando_agendamento': return 'Confirmando';
+      case 'visualizando_agendamentos': return 'Visualizando';
+      case 'cancelando_consulta': return 'Cancelando';
+      case 'lista_espera': return 'Lista de Espera';
+      default: return state;
     }
+  };
+
+  const formatPhone = (phone) => {
+    if (!phone) return 'N/A';
+    // Formatar telefone brasileiro
+    const cleaned = phone.replace(/\D/g, '');
+    if (cleaned.length === 11) {
+      return `(${cleaned.slice(0,2)}) ${cleaned.slice(2,7)}-${cleaned.slice(7)}`;
+    }
+    return phone;
   };
 
   return (
@@ -67,52 +89,42 @@ function ConversationList({ conversations, loading, selectedId, onSelect }) {
             <div className="flex-1">
               <div className="flex items-center gap-2">
                 <h3 className="font-semibold text-gray-900">
-                  {conversation.patient_name || conversation.phone}
+                  {formatPhone(conversation.phone)}
                 </h3>
-                <span className={`w-2 h-2 rounded-full ${getPriorityColor(conversation.priority)}`} />
+                <span className={`w-2 h-2 rounded-full ${getStateColor(conversation.state)}`} />
               </div>
-              <p className="text-sm text-gray-500">{conversation.phone}</p>
+              <p className="text-sm text-gray-500">
+                Estado: {getStateText(conversation.state)}
+              </p>
             </div>
-            <StatusBadge status={conversation.status} />
+            <StatusBadge status={conversation.state} />
           </div>
 
-          {/* Resumo da conversa */}
-          <p className="text-sm text-gray-600 mb-2 line-clamp-2">
-            {conversation.ai_summary}
-          </p>
-
-          {/* Tags */}
-          <div className="flex flex-wrap gap-1 mb-2">
-            {conversation.tags?.slice(0, 3).map((tag, index) => (
-              <span
-                key={index}
-                className="px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded"
-              >
-                {tag}
-              </span>
-            ))}
-            {conversation.tags?.length > 3 && (
-              <span className="text-xs text-gray-500">
-                +{conversation.tags.length - 3}
-              </span>
+          {/* Informações da conversa */}
+          <div className="text-sm text-gray-600 mb-2">
+            <p>Mensagens: {conversation.message_count}</p>
+            {conversation.context && Object.keys(conversation.context).length > 0 && (
+              <p className="text-xs text-gray-500 mt-1">
+                Contexto: {Object.keys(conversation.context).join(', ')}
+              </p>
             )}
           </div>
 
           {/* Footer */}
           <div className="flex items-center justify-between text-xs text-gray-500">
-            <span>{conversation.message_count} mensagens</span>
+            <span>ID: {conversation.id}</span>
             <span>
-              {formatDistanceToNow(new Date(conversation.last_message_at), {
+              {formatDistanceToNow(new Date(conversation.updated_at), {
                 addSuffix: true,
                 locale: ptBR
               })}
             </span>
           </div>
 
-          {/* Indicador de atenção necessária */}
-          {conversation.status === 'requires_attention' && (
-            <div className="mt-2 px-2 py-1 bg-red-100 text-red-700 text-xs rounded">
-              ⚠️ Requer atenção imediata
+          {/* Indicador de atividade recente */}
+          {new Date(conversation.updated_at) > new Date(Date.now() - 5 * 60 * 1000) && (
+            <div className="mt-2 px-2 py-1 bg-green-100 text-green-700 text-xs rounded">
+              🟢 Ativo agora
             </div>
           )}
         </div>

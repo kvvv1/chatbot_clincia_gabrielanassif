@@ -21,53 +21,80 @@ class ConversationManager:
     async def processar_mensagem(self, phone: str, message: str,
                                 message_id: str, db: Session):
         """Processa mensagem e retorna resposta apropriada"""
+        
+        logger.info(f"=== CONVERSATION MANAGER - INÍCIO ===")
+        logger.info(f"Telefone: {phone}")
+        logger.info(f"Mensagem: {message}")
+        logger.info(f"Message ID: {message_id}")
 
-        # Marcar mensagem como lida
-        await self.whatsapp.mark_as_read(phone, message_id)
+        try:
+            # Marcar mensagem como lida
+            logger.info("Marcando mensagem como lida...")
+            await self.whatsapp.mark_as_read(phone, message_id)
+            logger.info("Mensagem marcada como lida")
 
-        # Buscar ou criar conversa
-        conversa = self._get_or_create_conversation(phone, db)
+            # Buscar ou criar conversa
+            logger.info("Buscando ou criando conversa...")
+            conversa = self._get_or_create_conversation(phone, db)
+            logger.info(f"Conversa encontrada/criada: ID {conversa.id}")
 
-        # Processar baseado no estado atual
-        estado = conversa.state
-        contexto = conversa.context or {}
+            # Processar baseado no estado atual
+            estado = conversa.state
+            contexto = conversa.context or {}
 
-        # Log para debug
-        logger.info(f"Estado atual: {estado}, Mensagem: {message}")
+            logger.info(f"Estado atual: {estado}")
+            logger.info(f"Contexto: {contexto}")
 
-        # Máquina de estados
-        if estado == "inicio":
-            await self._handle_inicio(phone, message, conversa, db)
+            # Máquina de estados
+            if estado == "inicio":
+                logger.info("Executando handler de início...")
+                await self._handle_inicio(phone, message, conversa, db)
 
-        elif estado == "menu_principal":
-            await self._handle_menu_principal(phone, message, conversa, db)
+            elif estado == "menu_principal":
+                logger.info("Executando handler do menu principal...")
+                await self._handle_menu_principal(phone, message, conversa, db)
 
-        elif estado == "aguardando_cpf":
-            await self._handle_cpf(phone, message, conversa, db)
+            elif estado == "aguardando_cpf":
+                logger.info("Executando handler de CPF...")
+                await self._handle_cpf(phone, message, conversa, db)
 
-        elif estado == "escolhendo_data":
-            await self._handle_escolha_data(phone, message, conversa, db)
+            elif estado == "escolhendo_data":
+                logger.info("Executando handler de escolha de data...")
+                await self._handle_escolha_data(phone, message, conversa, db)
 
-        elif estado == "escolhendo_horario":
-            await self._handle_escolha_horario(phone, message, conversa, db)
+            elif estado == "escolhendo_horario":
+                logger.info("Executando handler de escolha de horário...")
+                await self._handle_escolha_horario(phone, message, conversa, db)
 
-        elif estado == "confirmando_agendamento":
-            await self._handle_confirmacao(phone, message, conversa, db)
+            elif estado == "confirmando_agendamento":
+                logger.info("Executando handler de confirmação...")
+                await self._handle_confirmacao(phone, message, conversa, db)
 
-        elif estado == "visualizando_agendamentos":
-            await self._handle_visualizar_agendamentos(phone, message, conversa, db)
+            elif estado == "visualizando_agendamentos":
+                logger.info("Executando handler de visualização de agendamentos...")
+                await self._handle_visualizar_agendamentos(phone, message, conversa, db)
 
-        elif estado == "cancelando_consulta":
-            await self._handle_cancelamento(phone, message, conversa, db)
+            elif estado == "cancelando_consulta":
+                logger.info("Executando handler de cancelamento...")
+                await self._handle_cancelamento(phone, message, conversa, db)
 
-        elif estado == "lista_espera":
-            await self._handle_lista_espera(phone, message, conversa, db)
+            elif estado == "lista_espera":
+                logger.info("Executando handler de lista de espera...")
+                await self._handle_lista_espera(phone, message, conversa, db)
 
-        else:
-            # Estado desconhecido, reiniciar
-            conversa.state = "inicio"
-            db.commit()
-            await self._handle_inicio(phone, message, conversa, db)
+            else:
+                logger.info(f"Estado desconhecido: {estado}, reiniciando...")
+                # Estado desconhecido, reiniciar
+                conversa.state = "inicio"
+                db.commit()
+                await self._handle_inicio(phone, message, conversa, db)
+                
+            logger.info("=== CONVERSATION MANAGER - FIM ===")
+            
+        except Exception as e:
+            logger.error(f"Erro no ConversationManager: {str(e)}")
+            logger.error("Traceback completo: ", exc_info=True)
+            raise
 
     async def _handle_inicio(self, phone: str, message: str,
                            conversa: Conversation, db: Session):

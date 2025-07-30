@@ -2,88 +2,115 @@
 """
 Script para testar o deployment no Vercel
 """
-
 import requests
 import json
+import time
 import sys
-import os
 
-def test_endpoint(base_url, endpoint, description):
-    """Testa um endpoint específico"""
-    try:
-        url = f"{base_url}{endpoint}"
-        print(f"\n🔍 Testando {description}...")
-        print(f"URL: {url}")
-        
-        response = requests.get(url, timeout=30)
-        
-        print(f"Status: {response.status_code}")
-        print(f"Headers: {dict(response.headers)}")
-        
-        if response.status_code == 200:
-            try:
-                data = response.json()
-                print(f"Response: {json.dumps(data, indent=2)}")
-            except:
-                print(f"Response: {response.text}")
-            return True
-        else:
-            print(f"Error: {response.text}")
-            return False
-            
-    except requests.exceptions.RequestException as e:
-        print(f"❌ Erro de conexão: {e}")
-        return False
-    except Exception as e:
-        print(f"❌ Erro inesperado: {e}")
-        return False
-
-def main():
-    # URL base do deployment
-    base_url = "https://chatbot-nassif.vercel.app"
+def test_vercel_deployment():
+    """Testa o deployment no Vercel"""
     
-    print("🚀 Testando deployment no Vercel...")
-    print(f"Base URL: {base_url}")
+    # URL do deployment
+    base_url = "https://chatbot-clincia.vercel.app"
+    
+    print("🧪 Testando deployment no Vercel...")
+    print(f"URL: {base_url}")
+    print("-" * 50)
     
     # Lista de endpoints para testar
     endpoints = [
-        ("/", "Root endpoint"),
-        ("/health", "Health check"),
-        ("/test", "Test endpoint"),
-        ("/debug", "Debug endpoint"),
-        ("/dashboard/status", "Dashboard status"),
-        ("/dashboard/test", "Dashboard test"),
-        ("/dashboard/ws-test", "WebSocket test"),
-        ("/dashboard/supabase/test", "Supabase test"),
+        "/",
+        "/test", 
+        "/health",
+        "/debug",
+        "/dashboard/test",
+        "/webhook/test"
     ]
     
     results = []
     
-    for endpoint, description in endpoints:
-        success = test_endpoint(base_url, endpoint, description)
-        results.append((endpoint, success))
-        print("✅" if success else "❌")
+    for endpoint in endpoints:
+        url = f"{base_url}{endpoint}"
+        print(f"🔍 Testando: {endpoint}")
+        
+        try:
+            start_time = time.time()
+            response = requests.get(url, timeout=30)
+            end_time = time.time()
+            
+            duration = round((end_time - start_time) * 1000, 2)
+            
+            if response.status_code == 200:
+                print(f"✅ Sucesso ({response.status_code}) - {duration}ms")
+                try:
+                    data = response.json()
+                    print(f"   📄 Resposta: {json.dumps(data, indent=2, ensure_ascii=False)}")
+                except:
+                    print(f"   📄 Resposta: {response.text[:200]}...")
+            else:
+                print(f"❌ Erro ({response.status_code}) - {duration}ms")
+                print(f"   📄 Resposta: {response.text[:200]}...")
+                
+            results.append({
+                "endpoint": endpoint,
+                "status_code": response.status_code,
+                "duration": duration,
+                "success": response.status_code == 200
+            })
+            
+        except requests.exceptions.Timeout:
+            print(f"⏰ Timeout - {endpoint}")
+            results.append({
+                "endpoint": endpoint,
+                "status_code": "TIMEOUT",
+                "duration": 30000,
+                "success": False
+            })
+        except requests.exceptions.ConnectionError:
+            print(f"🔌 Erro de conexão - {endpoint}")
+            results.append({
+                "endpoint": endpoint,
+                "status_code": "CONNECTION_ERROR",
+                "duration": 0,
+                "success": False
+            })
+        except Exception as e:
+            print(f"💥 Erro inesperado - {endpoint}: {str(e)}")
+            results.append({
+                "endpoint": endpoint,
+                "status_code": "ERROR",
+                "duration": 0,
+                "success": False
+            })
+        
+        print()
+        time.sleep(1)  # Pausa entre requests
     
     # Resumo dos resultados
-    print("\n" + "="*50)
+    print("=" * 50)
     print("📊 RESUMO DOS TESTES")
-    print("="*50)
+    print("=" * 50)
     
-    passed = sum(1 for _, success in results if success)
+    successful = sum(1 for r in results if r["success"])
     total = len(results)
     
-    for endpoint, success in results:
-        status = "✅ PASS" if success else "❌ FAIL"
-        print(f"{status}: {endpoint}")
+    print(f"✅ Sucessos: {successful}/{total}")
+    print(f"❌ Falhas: {total - successful}/{total}")
     
-    print(f"\nResultado: {passed}/{total} endpoints funcionando")
-    
-    if passed == total:
-        print("🎉 Todos os endpoints estão funcionando!")
-        return 0
+    if successful == total:
+        print("🎉 Todos os testes passaram!")
+        return True
     else:
-        print("⚠️  Alguns endpoints falharam. Verifique os logs do Vercel.")
-        return 1
+        print("⚠️  Alguns testes falharam")
+        
+        # Mostrar falhas
+        print("\n❌ Endpoints com falha:")
+        for result in results:
+            if not result["success"]:
+                print(f"   - {result['endpoint']} ({result['status_code']})")
+        
+        return False
 
 if __name__ == "__main__":
-    sys.exit(main()) 
+    success = test_vercel_deployment()
+    sys.exit(0 if success else 1) 

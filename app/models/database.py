@@ -3,6 +3,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
 import uuid
+import os
 from app.config import settings
 
 Base = declarative_base()
@@ -42,28 +43,45 @@ class WaitingList(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     notified = Column(Boolean, default=False)
 
-# Database setup
-try:
-    engine = create_engine(settings.database_url)
-    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    Base.metadata.create_all(bind=engine)
-except Exception as e:
-    print(f"⚠️  Aviso: Não foi possível conectar ao banco de dados: {e}")
-    print("💡 Para desenvolvimento, você pode usar SQLite ou PostgreSQL via Docker")
+# Database setup - Simplificado para Vercel
+IS_VERCEL = os.getenv('VERCEL', '0') == '1'
+
+# No Vercel, sempre usar modo mock para evitar problemas de conexão
+if IS_VERCEL:
+    print("🚀 Vercel detectado - usando modo mock para banco de dados")
     engine = None
     SessionLocal = None
+else:
+    try:
+        # Local development
+        engine = create_engine(settings.database_url)
+        SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+        Base.metadata.create_all(bind=engine)
+        print("✅ Conectado ao banco local")
+    except Exception as e:
+        print(f"⚠️  Aviso: Não foi possível conectar ao banco de dados: {e}")
+        print("💡 Para desenvolvimento, você pode usar SQLite ou PostgreSQL via Docker")
+        engine = None
+        SessionLocal = None
 
 def get_db():
     if SessionLocal is None:
-        # Mock database for development
+        # Mock database for development/Vercel
         class MockDB:
             def __init__(self):
                 self.data = {}
+                self.conversations = []
+                self.appointments = []
+                self.waiting_list = []
             
             def add(self, obj):
-                if not hasattr(self, 'conversations'):
-                    self.conversations = []
-                self.conversations.append(obj)
+                if hasattr(obj, '__tablename__'):
+                    if obj.__tablename__ == 'conversations':
+                        self.conversations.append(obj)
+                    elif obj.__tablename__ == 'appointments':
+                        self.appointments.append(obj)
+                    elif obj.__tablename__ == 'waiting_list':
+                        self.waiting_list.append(obj)
                 return obj
             
             def commit(self):
@@ -71,6 +89,27 @@ def get_db():
             
             def close(self):
                 pass
+            
+            def query(self, model):
+                return MockQuery(model, self)
+        
+        class MockQuery:
+            def __init__(self, model, db):
+                self.model = model
+                self.db = db
+                self._filter_conditions = []
+            
+            def filter(self, condition):
+                self._filter_conditions.append(condition)
+                return self
+            
+            def first(self):
+                # Retornar None para simular que não encontrou
+                return None
+            
+            def all(self):
+                # Retornar lista vazia
+                return []
         
         db = MockDB()
         try:

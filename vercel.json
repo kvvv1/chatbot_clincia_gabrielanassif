@@ -11,19 +11,22 @@
   ],
   "routes": [
     {
+      "src": "/webhook",
+      "dest": "app/main.py"
+    },
+    {
+      "src": "/webhook/(.*)",
+      "dest": "app/main.py"
+    },
+    {
       "src": "/(.*)",
       "dest": "app/main.py"
     }
   ],
   "env": {
-    "PYTHONPATH": ".",
-    "VERCEL": "1"
-  },
-  "functions": {
-    "app/main.py": {
-      "maxDuration": 60,
-      "memory": 2048
-    }
-  },
-  "regions": ["gru1"]
+    "VERCEL": "1",
+    "ENVIRONMENT": "production",
+    "DEBUG": "false",
+    "WEBSOCKET_ENABLED": "false"
+  }
 } 

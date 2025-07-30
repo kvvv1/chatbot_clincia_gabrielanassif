@@ -23,7 +23,7 @@ class GestaoDS:
             async with httpx.AsyncClient() as client:
                 # Usando a API correta da GestãoDS
                 response = await client.get(
-                    f"{self.base_url}/api/pacientes/",
+                    f"{self.base_url}/api/pacientes",
                     headers=self.headers,
                     params={"cpf": cpf_limpo},
                     timeout=30.0

@@ -152,6 +152,16 @@ async def fallback_status():
 # Sempre incluir o router de fallback primeiro
 app.include_router(fallback_router, prefix="/dashboard", tags=["dashboard"])
 
+# Endpoint de teste direto
+@app.get("/dashboard/test-simple")
+async def dashboard_test_simple():
+    """Teste simples do dashboard"""
+    return {
+        "status": "success",
+        "message": "Dashboard funcionando via main.py",
+        "timestamp": datetime.now().isoformat() + "Z"
+    }
+
 # Tentar incluir routers apenas se não houver erro
 try:
     from app.handlers.webhook import router as webhook_router
@@ -160,6 +170,14 @@ try:
 except Exception as e:
     logger.error(f"Erro ao carregar webhook router: {str(e)}")
     logger.info("Webhook router não disponível - usando apenas endpoints básicos")
+
+try:
+    from app.handlers.dashboard import router as dashboard_router
+    app.include_router(dashboard_router, prefix="/dashboard", tags=["dashboard"])
+    logger.info("Router dashboard carregado com sucesso")
+except Exception as e:
+    logger.error(f"Erro ao carregar dashboard router: {str(e)}")
+    logger.info("Dashboard router não disponível - usando apenas endpoints básicos")
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):

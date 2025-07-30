@@ -1,0 +1,15 @@
+{
+  "timestamp": 1753897219.6817076,
+  "results": {
+    "vercel_deployment": true,
+    "webhook_endpoint": false,
+    "zapi_connection": false,
+    "gestaods_api": false,
+    "webhook_message": true
+  },
+  "summary": {
+    "total": 5,
+    "passed": 2,
+    "failed": 3
+  }
+}

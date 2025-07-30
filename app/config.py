@@ -8,22 +8,22 @@ logger = logging.getLogger(__name__)
 
 class Settings(BaseSettings):
     # Z-API
-    zapi_instance_id: Optional[str] = ""
-    zapi_token: Optional[str] = ""
-    zapi_client_token: Optional[str] = ""
+    zapi_instance_id: str = ""
+    zapi_token: str = ""
+    zapi_client_token: str = ""
     zapi_base_url: str = "https://api.z-api.io"
 
     # GestãoDS
     gestaods_api_url: str = "https://apidev.gestaods.com.br"
-    gestaods_token: Optional[str] = "733a8e19a94b65d58390da380ac946b6d603a535"
+    gestaods_token: str = "733a8e19a94b65d58390da380ac946b6d603a535"
 
-    # Database
-    database_url: Optional[str] = "postgresql://postgres:password@localhost:5432/chatbot_clinica"
+    # Database - Usar Supabase no Vercel
+    database_url: str = ""
     
     # Supabase
-    supabase_url: Optional[str] = ""
-    supabase_anon_key: Optional[str] = ""
-    supabase_service_role_key: Optional[str] = ""
+    supabase_url: str = ""
+    supabase_anon_key: str = ""
+    supabase_service_role_key: str = ""
 
     # App
     app_host: str = "0.0.0.0"
@@ -40,8 +40,8 @@ class Settings(BaseSettings):
     cors_allow_credentials: bool = True
 
     # Clinic
-    clinic_name: Optional[str] = "Clínica Nassif"
-    clinic_phone: Optional[str] = ""
+    clinic_name: str = "Clínica Nassif"
+    clinic_phone: str = "+553198600366"
     reminder_hour: int = 18
     reminder_minute: int = 0
 
@@ -52,36 +52,6 @@ class Settings(BaseSettings):
         "validate_assignment": False,
         "validate_default": False
     }
-    
-    def __init__(self, **kwargs):
-        try:
-            super().__init__(**kwargs)
-            logger.info("Configurações carregadas com sucesso")
-        except Exception as e:
-            logger.error(f"Erro ao carregar configurações: {str(e)}")
-            # Usar valores padrão em caso de erro - evita crash da aplicação
-            object.__setattr__(self, 'zapi_instance_id', kwargs.get('zapi_instance_id', ""))
-            object.__setattr__(self, 'zapi_token', kwargs.get('zapi_token', ""))
-            object.__setattr__(self, 'zapi_client_token', kwargs.get('zapi_client_token', ""))
-            object.__setattr__(self, 'zapi_base_url', kwargs.get('zapi_base_url', "https://api.z-api.io"))
-            object.__setattr__(self, 'gestaods_api_url', kwargs.get('gestaods_api_url', "https://apidev.gestaods.com.br"))
-            object.__setattr__(self, 'gestaods_token', kwargs.get('gestaods_token', ""))
-            object.__setattr__(self, 'database_url', kwargs.get('database_url', ""))
-            object.__setattr__(self, 'supabase_url', kwargs.get('supabase_url', ""))
-            object.__setattr__(self, 'supabase_anon_key', kwargs.get('supabase_anon_key', ""))
-            object.__setattr__(self, 'supabase_service_role_key', kwargs.get('supabase_service_role_key', ""))
-            object.__setattr__(self, 'app_host', kwargs.get('app_host', "0.0.0.0"))
-            object.__setattr__(self, 'app_port', kwargs.get('app_port', 8000))
-            object.__setattr__(self, 'environment', kwargs.get('environment', "development"))
-            object.__setattr__(self, 'debug', kwargs.get('debug', True))
-            object.__setattr__(self, 'websocket_enabled', kwargs.get('websocket_enabled', False))
-            object.__setattr__(self, 'websocket_max_connections', kwargs.get('websocket_max_connections', 10))
-            object.__setattr__(self, 'cors_origins', kwargs.get('cors_origins', "*"))
-            object.__setattr__(self, 'cors_allow_credentials', kwargs.get('cors_allow_credentials', False))
-            object.__setattr__(self, 'clinic_name', kwargs.get('clinic_name', "Clínica Nassif"))
-            object.__setattr__(self, 'clinic_phone', kwargs.get('clinic_phone', ""))
-            object.__setattr__(self, 'reminder_hour', kwargs.get('reminder_hour', 18))
-            object.__setattr__(self, 'reminder_minute', kwargs.get('reminder_minute', 0))
 
 @lru_cache()
 def get_settings():
@@ -103,7 +73,13 @@ def create_fallback_settings():
             self.zapi_base_url = os.getenv('ZAPI_BASE_URL', 'https://api.z-api.io')
             self.gestaods_api_url = os.getenv('GESTAODS_API_URL', 'https://apidev.gestaods.com.br')
             self.gestaods_token = os.getenv('GESTAODS_TOKEN', '')
-            self.database_url = os.getenv('DATABASE_URL', '')
+            
+            # No Vercel, não usar database_url local
+            if os.getenv('VERCEL', '0') == '1':
+                self.database_url = ""
+            else:
+                self.database_url = os.getenv('DATABASE_URL', '')
+                
             self.supabase_url = os.getenv('SUPABASE_URL', '')
             self.supabase_anon_key = os.getenv('SUPABASE_ANON_KEY', '')
             self.supabase_service_role_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY', '')

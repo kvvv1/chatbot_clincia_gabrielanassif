@@ -12,25 +12,41 @@ class WhatsAppService:
             "Client-Token": settings.zapi_client_token,
             "Content-Type": "application/json"
         }
+        # Log para debug
+        logger.info(f"Z-API Config: Instance={settings.zapi_instance_id}, Token={settings.zapi_token[:10]}..., ClientToken={settings.zapi_client_token[:10]}...")
 
     async def send_text(self, phone: str, message: str, delay_message: int = 2):
         """Envia mensagem de texto simples"""
         try:
-            async with httpx.AsyncClient() as client:
-                payload = {
-                    "phone": self._format_phone(phone),
-                    "message": message,
-                    "delayMessage": delay_message
-                }
+            logger.info(f"=== ENVIANDO MENSAGEM VIA Z-API ===")
+            logger.info(f"Telefone: {phone}")
+            logger.info(f"Mensagem: {message}")
+            logger.info(f"URL base: {self.base_url}")
+            
+            formatted_phone = self._format_phone(phone)
+            logger.info(f"Telefone formatado: {formatted_phone}")
+            
+            payload = {
+                "phone": formatted_phone,
+                "message": message,
+                "delayMessage": delay_message
+            }
+            
+            logger.info(f"Payload: {payload}")
+            logger.info(f"Headers: {self.headers}")
 
+            async with httpx.AsyncClient() as client:
                 response = await client.post(
                     f"{self.base_url}/send-text",
                     json=payload,
                     headers=self.headers
                 )
 
+                logger.info(f"Status da resposta: {response.status_code}")
+                logger.info(f"Resposta: {response.text}")
+
                 if response.status_code == 200:
-                    logger.info(f"Mensagem enviada para {phone}")
+                    logger.info(f"Mensagem enviada com sucesso para {phone}")
                     return response.json()
                 else:
                     logger.error(f"Erro ao enviar mensagem: {response.text}")
@@ -38,6 +54,7 @@ class WhatsAppService:
 
         except Exception as e:
             logger.error(f"Erro na comunicação com Z-API: {str(e)}")
+            logger.error("Traceback completo: ", exc_info=True)
             return None
 
     async def send_button_list(self, phone: str, message: str,
