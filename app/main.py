@@ -68,7 +68,8 @@ async def root():
             "service": "Chatbot Clínica",
             "version": "1.0.0",
             "environment": "vercel" if IS_VERCEL else "local",
-            "timestamp": datetime.now().isoformat() + "Z"
+            "timestamp": datetime.now().isoformat() + "Z",
+            "deploy_version": "2025-07-30-v2"
         }
     except Exception as e:
         logger.error(f"Erro no endpoint root: {str(e)}")
