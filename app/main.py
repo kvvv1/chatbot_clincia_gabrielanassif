@@ -1,12 +1,13 @@
-from fastapi import FastAPI, Request, HTTPException, APIRouter
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import logging
 import sys
 import os
 import traceback
+from datetime import datetime
 
-# Configurar logging básico
+# Configurar logging básico - SEM arquivos no Vercel
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -21,20 +22,6 @@ logger = logging.getLogger(__name__)
 IS_VERCEL = os.getenv('VERCEL', '0') == '1'
 
 logger.info(f"Iniciando aplicação FastAPI - Ambiente: {'Vercel' if IS_VERCEL else 'Local'}")
-
-# Inicializar configurações de forma segura
-try:
-    from app.config import settings
-    logger.info("Configurações carregadas com sucesso")
-except Exception as e:
-    logger.error(f"Erro ao carregar configurações: {str(e)}")
-    logger.info("Aplicação continuará com configurações mínimas")
-    # Criar objeto de configurações mínimas
-    class MinimalSettings:
-        environment = "vercel" if IS_VERCEL else "development"
-        debug = False if IS_VERCEL else True
-        websocket_enabled = False
-    settings = MinimalSettings()
 
 # Criar aplicação FastAPI
 app = FastAPI(
@@ -81,7 +68,7 @@ async def root():
             "service": "Chatbot Clínica",
             "version": "1.0.0",
             "environment": "vercel" if IS_VERCEL else "local",
-            "timestamp": "2024-01-01T00:00:00Z"
+            "timestamp": datetime.now().isoformat() + "Z"
         }
     except Exception as e:
         logger.error(f"Erro no endpoint root: {str(e)}")
@@ -94,7 +81,7 @@ async def test_endpoint():
         return {
             "message": "Backend funcionando!",
             "environment": "vercel" if IS_VERCEL else "local",
-            "timestamp": "2024-01-01T00:00:00Z"
+            "timestamp": datetime.now().isoformat() + "Z"
         }
     except Exception as e:
         logger.error(f"Erro no endpoint test: {str(e)}")
@@ -170,15 +157,6 @@ try:
 except Exception as e:
     logger.error(f"Erro ao carregar webhook router: {str(e)}")
     logger.info("Webhook router não disponível - usando apenas endpoints básicos")
-
-# Tentar incluir dashboard router (pode sobrescrever fallback se bem-sucedido)
-try:
-    from app.handlers.dashboard import router as dashboard_router
-    app.include_router(dashboard_router, prefix="/dashboard-advanced", tags=["dashboard-advanced"])
-    logger.info("Router dashboard avançado carregado com sucesso")
-except Exception as e:
-    logger.error(f"Erro ao carregar dashboard router: {str(e)}")
-    logger.info("Usando apenas router de fallback para dashboard")
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):

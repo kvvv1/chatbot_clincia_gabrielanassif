@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Request, HTTPException
 import logging
 import json
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -41,7 +42,7 @@ async def webhook_test():
         return {
             "status": "ok",
             "message": "Webhook test funcionando",
-            "timestamp": "2024-01-01T00:00:00Z"
+            "timestamp": datetime.now().isoformat() + "Z"
         }
     except Exception as e:
         logger.error(f"Erro no webhook test: {str(e)}")
