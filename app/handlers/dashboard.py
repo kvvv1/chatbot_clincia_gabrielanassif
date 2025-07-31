@@ -4,12 +4,16 @@ from datetime import datetime, timedelta
 import logging
 import json
 import os
+from app.services.gestaods import GestaoDS
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # Verificar se estamos no Vercel (serverless)
 IS_VERCEL = os.getenv('VERCEL', '0') == '1'
+
+# Instância do GestãoDS
+gestaods = GestaoDS()
 
 @router.get("/health")
 async def dashboard_health():
@@ -29,6 +33,211 @@ async def dashboard_health():
             "error": str(e),
             "timestamp": datetime.now().isoformat() + "Z"
         }
+
+# Endpoints do GestãoDS
+@router.get("/gestaods/health")
+async def gestaods_health():
+    """Verificação de saúde do GestãoDS"""
+    try:
+        return {
+            "status": "healthy",
+            "service": "gestaods",
+            "base_url": gestaods.base_url,
+            "environment": "dev" if gestaods.is_dev else "prod",
+            "timestamp": datetime.now().isoformat() + "Z"
+        }
+    except Exception as e:
+        logger.error(f"Erro no health check do GestãoDS: {str(e)}")
+        return {
+            "status": "unhealthy",
+            "service": "gestaods",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat() + "Z"
+        }
+
+@router.get("/gestaods/patient/{cpf}")
+async def gestaods_get_patient(cpf: str):
+    """Busca paciente por CPF"""
+    try:
+        paciente = await gestaods.buscar_paciente_cpf(cpf)
+        if paciente:
+            return {
+                "status": "success",
+                "patient": paciente,
+                "timestamp": datetime.now().isoformat() + "Z"
+            }
+        else:
+            raise HTTPException(status_code=404, detail="Paciente não encontrado")
+    except Exception as e:
+        logger.error(f"Erro ao buscar paciente: {str(e)}")
+        raise HTTPException(status_code=500, detail="Erro interno")
+
+@router.get("/gestaods/slots/{date}")
+async def gestaods_get_slots(date: str):
+    """Busca datas disponíveis"""
+    try:
+        slots = await gestaods.buscar_dias_disponiveis(date)
+        return {
+            "status": "success",
+            "date": date,
+            "slots": slots,
+            "timestamp": datetime.now().isoformat() + "Z"
+        }
+    except Exception as e:
+        logger.error(f"Erro ao buscar slots: {str(e)}")
+        raise HTTPException(status_code=500, detail="Erro interno")
+
+@router.get("/gestaods/times/{date}")
+async def gestaods_get_times(date: str):
+    """Busca horários disponíveis para uma data"""
+    try:
+        times = await gestaods.buscar_horarios_disponiveis(date)
+        return {
+            "status": "success",
+            "date": date,
+            "times": times,
+            "timestamp": datetime.now().isoformat() + "Z"
+        }
+    except Exception as e:
+        logger.error(f"Erro ao buscar horários: {str(e)}")
+        raise HTTPException(status_code=500, detail="Erro interno")
+
+@router.get("/gestaods/widget")
+async def gestaods_get_widget():
+    """Informações do widget do GestãoDS"""
+    try:
+        return {
+            "status": "success",
+            "widget": {
+                "name": "GestãoDS Calendar Widget",
+                "version": "1.0",
+                "base_url": gestaods.base_url,
+                "environment": "dev" if gestaods.is_dev else "prod",
+                "features": [
+                    "patient_search",
+                    "slot_booking",
+                    "appointment_management"
+                ]
+            },
+            "timestamp": datetime.now().isoformat() + "Z"
+        }
+    except Exception as e:
+        logger.error(f"Erro ao buscar widget: {str(e)}")
+        raise HTTPException(status_code=500, detail="Erro interno")
+
+@router.get("/gestaods/config")
+async def gestaods_get_config():
+    """Configuração do GestãoDS"""
+    try:
+        return {
+            "status": "success",
+            "config": {
+                "base_url": gestaods.base_url,
+                "environment": "dev" if gestaods.is_dev else "prod",
+                "timeout": gestaods.timeout,
+                "cache_ttl": gestaods._cache_ttl
+            },
+            "timestamp": datetime.now().isoformat() + "Z"
+        }
+    except Exception as e:
+        logger.error(f"Erro ao buscar configuração: {str(e)}")
+        raise HTTPException(status_code=500, detail="Erro interno")
+
+@router.get("/gestaods/services")
+async def gestaods_get_services():
+    """Lista de serviços disponíveis"""
+    try:
+        return {
+            "status": "success",
+            "services": [
+                {
+                    "name": "Patient Search",
+                    "endpoint": "/gestaods/patient/{cpf}",
+                    "method": "GET",
+                    "description": "Busca paciente por CPF"
+                },
+                {
+                    "name": "Available Slots",
+                    "endpoint": "/gestaods/slots/{date}",
+                    "method": "GET",
+                    "description": "Busca datas disponíveis"
+                },
+                {
+                    "name": "Available Times",
+                    "endpoint": "/gestaods/times/{date}",
+                    "method": "GET",
+                    "description": "Busca horários disponíveis"
+                },
+                {
+                    "name": "Create Appointment",
+                    "endpoint": "/gestaods/appointment",
+                    "method": "POST",
+                    "description": "Cria novo agendamento"
+                }
+            ],
+            "timestamp": datetime.now().isoformat() + "Z"
+        }
+    except Exception as e:
+        logger.error(f"Erro ao buscar serviços: {str(e)}")
+        raise HTTPException(status_code=500, detail="Erro interno")
+
+@router.get("/gestaods/doctors")
+async def gestaods_get_doctors():
+    """Lista de médicos disponíveis"""
+    try:
+        # Por enquanto, retornar dados de exemplo
+        return {
+            "status": "success",
+            "doctors": [
+                {
+                    "id": 1,
+                    "name": "Dr. Gabriela Nassif",
+                    "specialty": "Clínica Geral",
+                    "available": True
+                },
+                {
+                    "id": 2,
+                    "name": "Dr. João Silva",
+                    "specialty": "Cardiologia",
+                    "available": True
+                }
+            ],
+            "timestamp": datetime.now().isoformat() + "Z"
+        }
+    except Exception as e:
+        logger.error(f"Erro ao buscar médicos: {str(e)}")
+        raise HTTPException(status_code=500, detail="Erro interno")
+
+@router.post("/gestaods/appointment")
+async def gestaods_create_appointment(request: dict):
+    """Cria novo agendamento"""
+    try:
+        cpf = request.get("cpf")
+        data_agendamento = request.get("data_agendamento")
+        data_fim_agendamento = request.get("data_fim_agendamento")
+        primeiro_atendimento = request.get("primeiro_atendimento", True)
+        
+        if not all([cpf, data_agendamento, data_fim_agendamento]):
+            raise HTTPException(status_code=400, detail="Dados obrigatórios não fornecidos")
+        
+        agendamento = await gestaods.criar_agendamento(
+            cpf=cpf,
+            data_agendamento=data_agendamento,
+            data_fim_agendamento=data_fim_agendamento,
+            primeiro_atendimento=primeiro_atendimento
+        )
+        
+        if agendamento:
+            return {
+                "status": "success",
+                "appointment": agendamento,
+                "timestamp": datetime.now().isoformat() + "Z"
+            }
+        else:
+            raise HTTPException(status_code=400, detail="Erro ao criar agendamento")
+    except Exception as e:
+        logger.error(f"Erro ao criar agendamento: {str(e)}")
+        raise HTTPException(status_code=500, detail="Erro interno")
 
 @router.get("/conversations")
 async def get_conversations(
@@ -103,28 +312,36 @@ async def send_message_to_conversation(
 ):
     """Envia mensagem para uma conversa específica"""
     try:
+        # Por enquanto, apenas simular envio
         return {
             "status": "success",
-            "message": "Mensagem enviada com sucesso",
             "conversation_id": conversation_id,
-            "timestamp": datetime.now().isoformat() + "Z"
+            "message": message,
+            "sent_at": datetime.now().isoformat() + "Z"
         }
-            
+        
     except Exception as e:
         logger.error(f"Erro ao enviar mensagem: {str(e)}")
         raise HTTPException(status_code=500, detail="Erro interno")
 
 @router.get("/analytics")
 async def get_analytics():
-    """Obtém estatísticas e análises"""
+    """Obtém dados de analytics"""
     try:
-        return {
+        # Dados de exemplo
+        analytics = {
             "conversations": {
                 "total": 2,
                 "active_last_7_days": 2,
                 "by_state": [
-                    {"state": "menu_principal", "count": 1},
-                    {"state": "aguardando_cpf", "count": 1}
+                    {
+                        "state": "menu_principal",
+                        "count": 1
+                    },
+                    {
+                        "state": "aguardando_cpf",
+                        "count": 1
+                    }
                 ]
             },
             "appointments": {
@@ -136,26 +353,38 @@ async def get_analytics():
             "timestamp": datetime.now().isoformat() + "Z"
         }
         
+        return analytics
+        
     except Exception as e:
         logger.error(f"Erro ao buscar analytics: {str(e)}")
         raise HTTPException(status_code=500, detail="Erro interno")
 
 @router.get("/test")
 async def test_endpoint():
-    """Endpoint de teste do dashboard"""
+    """Endpoint de teste"""
     return {
-        "status": "success",
-        "message": "Dashboard funcionando corretamente",
-        "environment": "vercel" if IS_VERCEL else "local",
+        "message": "Dashboard funcionando!",
         "timestamp": datetime.now().isoformat() + "Z"
     }
 
 @router.get("/status")
 async def get_status():
-    """Status do dashboard"""
-    return {
-        "status": "online",
-        "dashboard": "connected",
-        "environment": "vercel" if IS_VERCEL else "local",
-        "timestamp": datetime.now().isoformat() + "Z"
-    } 
+    """Status geral do sistema"""
+    try:
+        return {
+            "status": "operational",
+            "services": {
+                "dashboard": "healthy",
+                "gestaods": "healthy" if gestaods.base_url else "unhealthy",
+                "webhook": "healthy"
+            },
+            "environment": "vercel" if IS_VERCEL else "local",
+            "timestamp": datetime.now().isoformat() + "Z"
+        }
+    except Exception as e:
+        logger.error(f"Erro ao verificar status: {str(e)}")
+        return {
+            "status": "degraded",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat() + "Z"
+        } 
