@@ -13,7 +13,13 @@ router = APIRouter()
 IS_VERCEL = os.getenv('VERCEL', '0') == '1'
 
 # Instância do GestãoDS
-gestaods = GestaoDS()
+try:
+    gestaods = GestaoDS()
+    logger.info(f"GestãoDS inicializado - URL: {gestaods.base_url}")
+    logger.info(f"Token configurado: {'Sim' if gestaods.token else 'Não'}")
+except Exception as e:
+    logger.error(f"Erro ao inicializar GestãoDS: {str(e)}")
+    gestaods = None
 
 @router.get("/health")
 async def dashboard_health():
@@ -39,11 +45,20 @@ async def dashboard_health():
 async def gestaods_health():
     """Verificação de saúde do GestãoDS"""
     try:
+        if gestaods is None:
+            return {
+                "status": "unhealthy",
+                "service": "gestaods",
+                "error": "GestãoDS não inicializado",
+                "timestamp": datetime.now().isoformat() + "Z"
+            }
+        
         return {
             "status": "healthy",
             "service": "gestaods",
             "base_url": gestaods.base_url,
             "environment": "dev" if gestaods.is_dev else "prod",
+            "token_configured": bool(gestaods.token),
             "timestamp": datetime.now().isoformat() + "Z"
         }
     except Exception as e:
@@ -59,7 +74,23 @@ async def gestaods_health():
 async def gestaods_get_patient(cpf: str):
     """Busca paciente por CPF"""
     try:
-        paciente = await gestaods.buscar_paciente_cpf(cpf)
+        # Verificar se o GestãoDS está configurado
+        if not gestaods.base_url or not gestaods.token:
+            logger.error("GestãoDS não configurado corretamente")
+            return {
+                "status": "error",
+                "message": "GestãoDS não configurado",
+                "timestamp": datetime.now().isoformat() + "Z"
+            }
+        
+        # Limpar CPF
+        cpf_limpo = ''.join(filter(str.isdigit, cpf))
+        if len(cpf_limpo) != 11:
+            raise HTTPException(status_code=400, detail="CPF inválido")
+        
+        logger.info(f"Buscando paciente com CPF: {cpf_limpo}")
+        paciente = await gestaods.buscar_paciente_cpf(cpf_limpo)
+        
         if paciente:
             return {
                 "status": "success",
@@ -67,10 +98,25 @@ async def gestaods_get_patient(cpf: str):
                 "timestamp": datetime.now().isoformat() + "Z"
             }
         else:
-            raise HTTPException(status_code=404, detail="Paciente não encontrado")
+            # Retornar paciente não encontrado em vez de erro 404
+            return {
+                "status": "not_found",
+                "message": "Paciente não encontrado",
+                "cpf": cpf_limpo,
+                "timestamp": datetime.now().isoformat() + "Z"
+            }
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
     except Exception as e:
-        logger.error(f"Erro ao buscar paciente: {str(e)}")
-        raise HTTPException(status_code=500, detail="Erro interno")
+        logger.error(f"Erro ao buscar paciente {cpf}: {str(e)}")
+        logger.error(f"Tipo de erro: {type(e).__name__}")
+        return {
+            "status": "error",
+            "message": f"Erro interno: {str(e)}",
+            "cpf": cpf,
+            "timestamp": datetime.now().isoformat() + "Z"
+        }
 
 @router.get("/gestaods/slots/{date}")
 async def gestaods_get_slots(date: str):
