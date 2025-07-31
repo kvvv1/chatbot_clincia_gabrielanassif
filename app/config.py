@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     supabase_service_role_key: str = ""
 
     # App
-    app_host: str = "0.0.0.0"
+    app_host: str = "https://chatbot-clincia.vercel.app"
     app_port: int = 8000
     environment: str = "development"
     debug: bool = True
@@ -85,7 +85,7 @@ def create_fallback_settings():
             self.supabase_url = os.getenv('SUPABASE_URL', '')
             self.supabase_anon_key = os.getenv('SUPABASE_ANON_KEY', '')
             self.supabase_service_role_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY', '')
-            self.app_host = os.getenv('APP_HOST', '0.0.0.0')
+            self.app_host = os.getenv('APP_HOST', 'https://chatbot-clincia.vercel.app')
             self.app_port = int(os.getenv('APP_PORT', '8000'))
             self.environment = os.getenv('ENVIRONMENT', 'development')
             self.debug = os.getenv('DEBUG', 'True').lower() == 'true'
