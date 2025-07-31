@@ -1,0 +1,14 @@
+# Variáveis de ambiente para o chatbot
+# Copie estas variáveis para o Vercel
+
+ZAPI_INSTANCE_ID=3E4F7360B552F0C2DBCB9E6774402775
+ZAPI_TOKEN=17829E98BB59E9ADD55BBBA9
+ZAPI_CLIENT_TOKEN=seu_client_token_aqui
+GESTAODS_TOKEN=733a8e19a94b65d58390da380ac946b6d603a535
+SUPABASE_URL=https://sua_url_do_supabase.supabase.co
+SUPABASE_ANON_KEY=sua_chave_anonima_do_supabase
+
+# Configurações adicionais
+CLINIC_PHONE=+55 31 99999-9999
+CLINIC_EMAIL=contato@clinica.com
+CLINIC_NAME=Clínica Exemplo

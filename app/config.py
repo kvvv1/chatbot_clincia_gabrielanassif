@@ -42,6 +42,8 @@ class Settings(BaseSettings):
     # Clinic
     clinic_name: str = "Clínica Nassif"
     clinic_phone: str = "+553198600366"
+    clinic_email: str = "contato@clinicanassif.com.br"
+    clinic_address: str = "Rua Example, 123 - Savassi\nBelo Horizonte - MG"
     reminder_hour: int = 18
     reminder_minute: int = 0
 
@@ -92,7 +94,9 @@ def create_fallback_settings():
             self.cors_origins = os.getenv('CORS_ORIGINS', '*')
             self.cors_allow_credentials = os.getenv('CORS_ALLOW_CREDENTIALS', 'False').lower() == 'true'
             self.clinic_name = os.getenv('CLINIC_NAME', 'Clínica Nassif')
-            self.clinic_phone = os.getenv('CLINIC_PHONE', '')
+            self.clinic_phone = os.getenv('CLINIC_PHONE', '+553198600366')
+            self.clinic_email = os.getenv('CLINIC_EMAIL', 'contato@clinicanassif.com.br')
+            self.clinic_address = os.getenv('CLINIC_ADDRESS', 'Rua Example, 123 - Savassi\nBelo Horizonte - MG')
             self.reminder_hour = int(os.getenv('REMINDER_HOUR', '18'))
             self.reminder_minute = int(os.getenv('REMINDER_MINUTE', '0'))
     

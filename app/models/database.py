@@ -4,7 +4,14 @@ from sqlalchemy.orm import sessionmaker
 from datetime import datetime
 import uuid
 import os
+from pathlib import Path
 from app.config import settings
+
+# Importar novas tabelas de auditoria
+from app.models.patient_transaction import (
+    PatientTransaction, PatientCache, ContextHistory, 
+    DecisionLog, ValidationRule
+)
 
 Base = declarative_base()
 
@@ -44,25 +51,52 @@ class WaitingList(Base):
     notified = Column(Boolean, default=False)
 
 # Database setup - Simplificado para Vercel
+# Configuração robusta do banco de dados
 IS_VERCEL = os.getenv('VERCEL', '0') == '1'
 
-# No Vercel, sempre usar modo mock para evitar problemas de conexão
-if IS_VERCEL:
-    print("🚀 Vercel detectado - usando modo mock para banco de dados")
-    engine = None
-    SessionLocal = None
-else:
-    try:
-        # Local development
-        engine = create_engine(settings.database_url)
-        SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-        Base.metadata.create_all(bind=engine)
-        print("✅ Conectado ao banco local")
-    except Exception as e:
-        print(f"⚠️  Aviso: Não foi possível conectar ao banco de dados: {e}")
-        print("💡 Para desenvolvimento, você pode usar SQLite ou PostgreSQL via Docker")
-        engine = None
-        SessionLocal = None
+def get_database_url():
+    """Obtém URL do banco de dados com fallbacks robustos"""
+    
+    # 1. Tentar DATABASE_URL direto (se definido)
+    if settings.database_url:
+        return settings.database_url
+    
+    # 2. Construir URL do Supabase se configurado
+    if settings.supabase_url and settings.supabase_anon_key:
+        # Extrair host do Supabase URL
+        host = settings.supabase_url.replace('https://', '').replace('http://', '')
+        return f"postgresql://postgres.{host.split('.')[0]}:@{host}:5432/postgres"
+    
+    # 3. Fallback para SQLite local
+    sqlite_path = Path("chatbot_local.db")
+    return f"sqlite:///{sqlite_path.absolute()}"
+
+# Configuração da engine
+try:
+    database_url = get_database_url()
+    print(f"🔗 Conectando ao banco: {database_url[:50]}...")
+    
+    if database_url.startswith('sqlite'):
+        engine = create_engine(database_url, connect_args={"check_same_thread": False})
+        print("📁 Usando banco SQLite local")
+    else:
+        engine = create_engine(database_url)
+        print("☁️ Usando banco na nuvem")
+    
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+    print("✅ Banco de dados configurado com sucesso")
+    
+except Exception as e:
+    print(f"❌ Erro ao configurar banco: {e}")
+    print("🔄 Usando configuração de fallback...")
+    
+    # Fallback final: SQLite in-memory
+    engine = create_engine("sqlite:///chatbot_fallback.db", connect_args={"check_same_thread": False})
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+    print("💾 Usando banco SQLite de fallback")
+# Configuração já realizada acima na seção robusta
 
 def get_db():
     if SessionLocal is None:
@@ -123,6 +157,14 @@ def get_db():
                 # Retornar lista vazia
                 return []
         
+        return MockDB()
+    else:
+        return SessionLocal()
+
+def get_session():
+    """Obtém sessão do banco de dados - versão contextmanager"""
+    if SessionLocal is None:
+        # Mock database for development/Vercel
         db = MockDB()
         try:
             yield db

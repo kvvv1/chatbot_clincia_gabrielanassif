@@ -1,184 +1,276 @@
 #!/usr/bin/env python3
 """
-Script para configurar webhook no Z-API para apontar para o Vercel
+Configuração específica do webhook para Vercel
 """
+
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 import asyncio
 import httpx
-from app.config import settings
 
-async def configurar_webhook_vercel():
-    """Configura o webhook no Z-API para apontar para o Vercel"""
-    print("🔧 Configurando webhook no Z-API para Vercel...")
-    
-    # URL do webhook no Vercel
-    vercel_webhook_url = "https://chatbot-clincia.vercel.app/webhook"
-    
-    print(f"📍 URL do webhook: {vercel_webhook_url}")
+async def verificar_vercel_deployment():
+    print("🔍 VERIFICANDO DEPLOYMENT VERCEL")
+    print("=" * 50)
     
     try:
-        base_url = f"{settings.zapi_base_url}/instances/{settings.zapi_instance_id}/token/{settings.zapi_token}"
+        from app.config import settings
         
-        # Payload para configurar webhook
-        payload = {
-            "webhook": vercel_webhook_url,
-            "webhookByEvents": True,
-            "webhookBase64": False
-        }
+        # No Vercel, app_host deve ser o domínio da aplicação
+        if settings.app_host == "0.0.0.0":
+            print("❌ PROBLEMA: app_host ainda está configurado para desenvolvimento!")
+            print("💡 No Vercel, configure VERCEL_URL ou APP_HOST com seu domínio")
+            print("   Exemplo: seu-chatbot.vercel.app")
+            return None
         
-        headers = {
-            "Client-Token": settings.zapi_client_token,
-            "Content-Type": "application/json"
-        }
+        vercel_url = f"https://{settings.app_host}"
+        print(f"1. 🌐 URL Vercel: {vercel_url}")
         
-        print(f"🌐 URL base: {base_url}")
-        print(f"📦 Payload: {payload}")
+        # Testar health check
+        print("2. 🏥 Testando aplicação no Vercel...")
         
-        async with httpx.AsyncClient() as client:
-            # Configurar webhook
-            print("\n1. Configurando webhook...")
-            try:
-                response = await client.post(
-                    f"{base_url}/webhook",
-                    json=payload,
-                    headers=headers
-                )
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                response = await client.get(f"{vercel_url}/webhook/health")
                 
-                print(f"   Status: {response.status_code}")
                 if response.status_code == 200:
                     data = response.json()
-                    print(f"   ✅ Webhook configurado com sucesso!")
-                    print(f"   📄 Resposta: {data}")
+                    print(f"   ✅ Aplicação funcionando!")
+                    print(f"   📊 Status: {data.get('status')}")
+                    print(f"   🌍 Environment: {data.get('environment')}")
+                    return vercel_url
                 else:
-                    print(f"   ❌ Erro ao configurar webhook: {response.text}")
+                    print(f"   ❌ Aplicação retornou erro: {response.status_code}")
+                    print(f"   📝 Resposta: {response.text}")
+                    return None
+                    
+        except Exception as e:
+            print(f"   ❌ Erro ao acessar aplicação: {str(e)}")
+            print("   💡 Verifique se o deploy foi feito corretamente")
+            return None
+            
+    except Exception as e:
+        print(f"❌ Erro: {str(e)}")
+        return None
+
+async def configurar_webhook_vercel():
+    print("\n\n📡 CONFIGURANDO WEBHOOK PARA VERCEL")
+    print("=" * 50)
+    
+    try:
+        from app.config import settings
+        
+        # Verificar credenciais Z-API
+        if not settings.zapi_instance_id or not settings.zapi_token:
+            print("❌ Credenciais Z-API não configuradas!")
+            return False
+        
+        print(f"1. 📱 Instância Z-API: {settings.zapi_instance_id[:8]}...")
+        
+        # URL do webhook Vercel
+        vercel_url = f"https://{settings.app_host}"
+        webhook_url = f"{vercel_url}/webhook"
+        
+        print(f"2. 🔗 Webhook URL: {webhook_url}")
+        
+        # Construir URL da Z-API
+        zapi_base = f"{settings.zapi_base_url}/instances/{settings.zapi_instance_id}/token/{settings.zapi_token}"
+        
+        # Verificar status da instância
+        print("3. 🔍 Verificando instância Z-API...")
+        
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                response = await client.get(f"{zapi_base}/status")
+                
+                if response.status_code == 200:
+                    status_data = response.json()
+                    print(f"   ✅ Instância ativa!")
+                    print(f"   📊 Status: {status_data}")
+                else:
+                    print(f"   ❌ Instância não encontrada: {response.status_code}")
                     return False
                     
-            except Exception as e:
-                print(f"   ❌ Erro na configuração: {e}")
-                return False
-            
-            # Verificar se foi configurado
-            print("\n2. Verificando configuração...")
-            try:
-                response = await client.get(
-                    f"{base_url}/webhook",
-                    headers=headers
+        except Exception as e:
+            print(f"   ❌ Erro ao verificar instância: {str(e)}")
+            return False
+        
+        # Configurar webhook
+        print("4. ⚙️ Configurando webhook...")
+        
+        webhook_config = {
+            "webhook": webhook_url,
+            "webhookEvents": ["message", "status"]
+        }
+        
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                response = await client.post(
+                    f"{zapi_base}/webhook",
+                    json=webhook_config
                 )
                 
-                print(f"   Status: {response.status_code}")
                 if response.status_code == 200:
-                    data = response.json()
-                    print(f"   ✅ Webhook verificado: {data}")
+                    print("   ✅ Webhook configurado!")
+                else:
+                    print(f"   ❌ Erro ao configurar: {response.status_code}")
+                    print(f"   📝 Resposta: {response.text}")
+                    return False
                     
-                    if 'webhook' in data and vercel_webhook_url in data['webhook']:
-                        print("   ✅ Webhook configurado corretamente para Vercel!")
+        except Exception as e:
+            print(f"   ❌ Erro na configuração: {str(e)}")
+            return False
+        
+        # Verificar configuração
+        print("5. ✅ Verificando configuração...")
+        
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                response = await client.get(f"{zapi_base}/webhook")
+                
+                if response.status_code == 200:
+                    webhook_info = response.json()
+                    configured_url = webhook_info.get('webhook', '')
+                    
+                    print(f"   📋 Webhook configurado: {configured_url}")
+                    
+                    if configured_url == webhook_url:
+                        print("   🎉 WEBHOOK VERCEL CONFIGURADO CORRETAMENTE!")
                         return True
                     else:
-                        print("   ⚠️  Webhook não está apontando para Vercel")
+                        print(f"   ⚠️ URL diferente da esperada")
                         return False
                 else:
-                    print(f"   ❌ Erro ao verificar: {response.text}")
+                    print(f"   ❌ Erro na verificação: {response.status_code}")
                     return False
                     
-            except Exception as e:
-                print(f"   ❌ Erro na verificação: {e}")
-                return False
-    
+        except Exception as e:
+            print(f"   ❌ Erro na verificação: {str(e)}")
+            return False
+            
     except Exception as e:
-        print(f"❌ Erro geral: {e}")
+        print(f"❌ Erro geral: {str(e)}")
         return False
 
 async def testar_webhook_vercel():
-    """Testa o webhook no Vercel"""
-    print("\n🧪 Testando webhook no Vercel...")
-    
-    vercel_webhook_url = "https://chatbot-clincia.vercel.app/webhook"
+    print("\n\n🧪 TESTANDO WEBHOOK VERCEL")
+    print("=" * 50)
     
     try:
-        async with httpx.AsyncClient() as client:
-            # Teste 1: Verificar se o servidor está online
-            print("\n1. Verificando se o servidor está online...")
-            try:
-                response = await client.get(
-                    "https://chatbot-clincia.vercel.app/",
-                    timeout=10.0
-                )
-                print(f"   Status: {response.status_code}")
-                if response.status_code == 200:
-                    print("   ✅ Servidor Vercel online!")
-                else:
-                    print(f"   ❌ Servidor não respondeu corretamente: {response.text}")
-                    return False
-            except Exception as e:
-                print(f"   ❌ Erro ao verificar servidor: {e}")
-                return False
-            
-            # Teste 2: Testar webhook
-            print("\n2. Testando webhook...")
-            test_data = {
-                "event": "message",
-                "data": {
-                    "id": "test_vercel",
-                    "type": "text",
-                    "from": "553198600366@c.us",
-                    "fromMe": False,
-                    "text": {
-                        "body": "Teste de webhook Vercel"
-                    }
-                }
-            }
-            
-            try:
+        from app.config import settings
+        
+        vercel_url = f"https://{settings.app_host}"
+        webhook_url = f"{vercel_url}/webhook"
+        
+        print(f"1. 📡 Testando: {webhook_url}")
+        
+        # Simular mensagem do Z-API
+        test_message = {
+            "type": "ReceivedCallback",
+            "phone": "5531999999999@c.us",
+            "text": {
+                "message": "teste vercel"
+            },
+            "messageId": "vercel_test_123",
+            "fromMe": False,
+            "timestamp": 1640995200
+        }
+        
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
                 response = await client.post(
-                    vercel_webhook_url,
-                    json=test_data,
-                    timeout=15.0
+                    webhook_url,
+                    json=test_message
                 )
                 
-                print(f"   Status: {response.status_code}")
                 if response.status_code == 200:
-                    data = response.json()
-                    print(f"   ✅ Webhook funcionando: {data}")
+                    print("   ✅ Webhook Vercel funcionando!")
+                    result = response.json()
+                    print(f"   📋 Resposta: {result}")
                     return True
                 else:
-                    print(f"   ❌ Erro no webhook: {response.text}")
+                    print(f"   ❌ Webhook retornou erro: {response.status_code}")
+                    print(f"   📝 Resposta: {response.text}")
                     return False
                     
-            except Exception as e:
-                print(f"   ❌ Erro ao testar webhook: {e}")
-                return False
-    
+        except Exception as e:
+            print(f"   ❌ Erro no teste: {str(e)}")
+            return False
+            
     except Exception as e:
-        print(f"❌ Erro geral no teste: {e}")
+        print(f"❌ Erro: {str(e)}")
         return False
 
+def mostrar_instrucoes_vercel():
+    print("\n\n📋 INSTRUÇÕES PARA VERCEL")
+    print("=" * 50)
+    
+    print("1. 🌐 Verificar variáveis de ambiente no Vercel:")
+    print("   - Acesse: https://vercel.com/dashboard")
+    print("   - Vá em seu projeto → Settings → Environment Variables")
+    print("   - Verifique se estão configuradas:")
+    print("     • ZAPI_INSTANCE_ID")
+    print("     • ZAPI_TOKEN")
+    print("     • ZAPI_CLIENT_TOKEN")
+    print("     • SUPABASE_URL")
+    print("     • SUPABASE_ANON_KEY")
+    print("     • APP_HOST (seu domínio .vercel.app)")
+    print()
+    
+    print("2. 🚀 Fazer redeploy se necessário:")
+    print("   vercel --prod")
+    print()
+    
+    print("3. 📱 Testar WhatsApp:")
+    print("   - Envie: 'oi'")
+    print("   - Deve receber: Menu")
+    print("   - Envie: '1'")
+    print("   - Deve receber: 'Digite seu CPF'")
+    print()
+    
+    print("4. 🔍 Ver logs do Vercel:")
+    print("   vercel logs --follow")
+
 async def main():
-    """Função principal"""
-    print("🚀 Configurando webhook para Vercel...")
+    print("🚀 CONFIGURAÇÃO WEBHOOK VERCEL")
+    print("=" * 70)
+    
+    # Verificar deployment
+    vercel_url = await verificar_vercel_deployment()
+    
+    if not vercel_url:
+        print("\n❌ PROBLEMA NO DEPLOYMENT VERCEL!")
+        print("🔧 Corrija primeiro o deployment, depois execute novamente")
+        return
     
     # Configurar webhook
-    success = await configurar_webhook_vercel()
+    webhook_ok = await configurar_webhook_vercel()
     
-    if success:
-        print("\n✅ Webhook configurado com sucesso!")
-        
-        # Testar webhook
-        test_success = await testar_webhook_vercel()
-        
-        if test_success:
-            print("\n🎉 TUDO FUNCIONANDO! Webhook configurado e testado com sucesso!")
-            print("\n📋 Resumo:")
-            print("   ✅ Webhook configurado no Z-API")
-            print("   ✅ Webhook apontando para Vercel")
-            print("   ✅ Servidor Vercel online")
-            print("   ✅ Webhook respondendo corretamente")
-            print("\n🚀 Sistema pronto para receber mensagens do WhatsApp!")
-        else:
-            print("\n⚠️  Webhook configurado, mas teste falhou")
-            print("   Verifique se o deploy no Vercel foi feito corretamente")
+    if not webhook_ok:
+        print("\n❌ PROBLEMA NA CONFIGURAÇÃO DO WEBHOOK!")
+        return
+    
+    # Testar webhook
+    teste_ok = await testar_webhook_vercel()
+    
+    print("\n" + "=" * 70)
+    print("📊 RESULTADO:")
+    
+    if webhook_ok and teste_ok:
+        print("🎉 VERCEL CONFIGURADO COM SUCESSO!")
+        print()
+        print("📱 Agora teste no WhatsApp:")
+        print("   1. Envie: 'oi'")
+        print("   2. Deve receber: Menu com opções")
+        print("   3. Envie: '1'")
+        print("   4. Deve receber: 'Digite seu CPF'")
+        print()
+        print("🔍 Se não funcionar, verifique os logs:")
+        print("   vercel logs --follow")
     else:
-        print("\n❌ Falha ao configurar webhook")
-        print("   Verifique as credenciais do Z-API")
+        print("❌ AINDA HÁ PROBLEMAS!")
+        mostrar_instrucoes_vercel()
 
 if __name__ == "__main__":
-    asyncio.run(main()) 
+    asyncio.run(main())

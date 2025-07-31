@@ -7,15 +7,11 @@ from app.services.gestaods import GestaoDS
 from app.utils.validators import ValidatorUtils
 from app.utils.formatters import FormatterUtils
 from app.utils.nlu_processor import NLUProcessor
-from app.utils.error_recovery import ErrorRecoveryManager, ErrorType
-from app.utils.cache_manager import CacheManager, CacheType
-from app.utils.analytics import AnalyticsManager, EventType
-from app.utils.context_validator import ContextValidator
 from app.services.state_manager import StateManager
 from app.config import settings
 import logging
 import re
-import time
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -25,1142 +21,768 @@ class ConversationManager:
         self.gestaods = GestaoDS()
         self.validator = ValidatorUtils()
         self.nlu = NLUProcessor()
-        self.error_recovery = ErrorRecoveryManager()
-        self.cache = CacheManager()
-        self.analytics = AnalyticsManager()
-        self.context_validator = ContextValidator()
         self.state_manager = StateManager()
-        
-        # Cache em memória para conversas ativas
         self.conversation_cache = {}
-
-    async def processar_mensagem(self, phone: str, message: str,
-                                message_id: str, db: Session):
-        """Processa mensagem com sistema 100% sólido de gerenciamento de conversas"""
         
-        start_time = time.time()
-        logger.info(f"=== CONVERSATION MANAGER - INÍCIO ===")
-        logger.info(f"Telefone: {phone}")
-        logger.info(f"Mensagem: '{message}'")
-        logger.info(f"Message ID: {message_id}")
-
+    async def processar_mensagem(self, phone: str, message: str, message_id: str, db: Session):
+        """Processa mensagem com sistema robusto de gerenciamento"""
         try:
-            # Analytics: Registrar recebimento da mensagem
-            try:
-                await self.analytics.track_message_received(phone, message, message_id)
-            except Exception as e:
-                logger.warning(f"Erro no analytics: {str(e)}")
+            # 🔧 CORREÇÃO: Logs esperados para diagnóstico rápido
+            logger.info(f"🎯 ===== INICIANDO PROCESSAMENTO =====")
+            logger.info(f"📱 User ID/Telefone: {phone}")
+            logger.info(f"💬 Mensagem recebida: '{message}'")
+            logger.info(f"🆔 Message ID: {message_id}")
             
-            # NLU: Processar mensagem para entender intenção
-            nlu_result = self.nlu.process_message(message)
-            logger.info(f"NLU Result: {nlu_result}")
-
-            # Marcar mensagem como lida
+            # Marcar como lida
             try:
                 await self.whatsapp.mark_as_read(phone, message_id)
-                logger.info("Mensagem marcada como lida")
-            except Exception as e:
-                logger.warning(f"Erro ao marcar como lida: {str(e)}")
-
-            # Buscar ou criar conversa com validação robusta
-            logger.info("Buscando ou criando conversa...")
-            conversa = self._get_or_create_conversation(phone, db)
-            logger.info(f"Conversa encontrada/criada: ID {conversa.id}")
+            except:
+                pass
             
-            # Validar e normalizar estado
-            estado = self._ensure_valid_state(conversa, db)
+            # Buscar ou criar conversa
+            conversa = self._get_or_create_conversation(phone, db)
+            estado = conversa.state or "inicio"
+            # 🔧 CORREÇÃO: Rastrear último estado para comandos globais
+            self._last_state = estado
             contexto = conversa.context or {}
             
-            logger.info(f"Estado atual: '{estado}'")
-            logger.info(f"Contexto: {contexto}")
-            logger.info(f"Processando mensagem: '{message}' no estado: {estado}")
-
-            # Verificar se é finalização de conversa
-            if self._is_conversation_end_request(message, nlu_result):
-                await self._finalize_conversation(phone, conversa, db)
+            logger.info(f"🔄 Estado ANTES: {estado}")
+            logger.info(f"📋 Contexto ANTES: {contexto}")
+            
+            # Processar NLU
+            nlu_result = self.nlu.process_message(message)
+            
+            # 🔧 CORREÇÃO: Remover validação que bloqueia o fluxo normal
+            # Os números 1-5 são válidos em muitos contextos (confirmações, escolhas, etc)
+            # A validação de contexto deve ser feita nos handlers individuais
+            message_clean = message.strip()
+            logger.info(f"🖺 Mensagem limpa: '{message_clean}'")
+            
+            # Verificar comandos globais
+            if self._is_global_command(message):
+                logger.info(f"🌐 Comando global detectado: '{message}'")
+                await self._handle_global_command(phone, message, conversa, db)
                 return
-
-            # Analytics: Registrar início de conversa se for primeira mensagem
-            if estado == "inicio":
+            
+            # Processar por estado
+            await self._process_by_state(phone, message, conversa, db, nlu_result)
+            
+            # 🔧 CORREÇÃO: Logs pós-processamento
+            db.refresh(conversa)  # Garantir que temos dados atualizados
+            estado_depois = conversa.state
+            contexto_depois = conversa.context.copy() if conversa.context else {}
+            
+            logger.info(f"🔄 Estado DEPOIS: {estado_depois}")
+            logger.info(f"📋 Contexto DEPOIS: {contexto_depois}")
+            
+            # 🔧 CORREÇÃO: Log explicando por que mudou
+            if estado != estado_depois:
+                logger.info(f"🔍 Mudança de estado: {estado} → {estado_depois}")
+                logger.info(f"📝 Razão: Processamento da mensagem '{message}' resultou em nova fase")
+            
+            logger.info(f"🎯 ===== PROCESSAMENTO CONCLUÍDO =====")
+            
+        except Exception as e:
+            logger.error(f"❌ Erro no processamento da mensagem: {str(e)}")
+            logger.exception("Stack trace completo:")
+            
+            # Em caso de erro crítico, resetar conversa
+            try:
+                conversa = self._get_or_create_conversation(phone, db)
+                await self._handle_error(phone, conversa, db)
+            except Exception as error_handling_error:
+                logger.error(f"❌ Erro crítico no handling de erro: {str(error_handling_error)}")
+                # Tentar pelo menos enviar uma mensagem de erro
                 try:
-                    await self.analytics.track_event(
-                        EventType.CONVERSATION_START, 
-                        {"initial_message": message}, 
-                        phone
-                    )
-                except Exception as e:
-                    logger.warning(f"Erro no analytics: {str(e)}")
-
-            # SOLUÇÃO DEFINITIVA: Validar contexto antes de processar
-            try:
-                # Validar mensagem para o estado atual
-                is_valid, error_message, suggested_action = self.context_validator.validate_message_for_state(
-                    message, estado, contexto
-                )
-                
-                if not is_valid:
-                    logger.warning(f"Validação de contexto falhou: {error_message}")
-                    await self.whatsapp.send_message(phone, error_message)
-                    return
-                
-                # Processar com sistema robusto de estados
-                await self._process_message_by_state(phone, message, conversa, db, nlu_result, estado, contexto, suggested_action)
-            except Exception as e:
-                logger.error(f"Erro durante processamento: {str(e)}")
-                await self._handle_processing_error(phone, conversa, db, e, estado, message)
-
-        except Exception as e:
-            logger.error(f"Erro crítico no processamento: {str(e)}")
-            await self._handle_critical_error(phone, message, message_id, e)
-
-        finally:
-            # Analytics: Registrar tempo de resposta
-            try:
-                response_time = time.time() - start_time
-                await self.analytics.track_message_sent(phone, "response_sent", response_time)
-            except Exception as e:
-                logger.warning(f"Erro no analytics: {str(e)}")
-            
-            logger.info(f"=== CONVERSATION MANAGER - FIM (Tempo: {time.time() - start_time:.2f}s) ===")
-
-    def _is_conversation_end_request(self, message: str, nlu_result: Dict) -> bool:
-        """Verifica se é uma solicitação para finalizar a conversa"""
-        message_lower = message.lower().strip()
-        end_indicators = ['sair', 'tchau', 'bye', '0', 'encerrar', 'finalizar', 'adeus']
-        return message_lower in end_indicators or nlu_result.get('is_farewell', False)
-
-    async def _finalize_conversation(self, phone: str, conversa: Conversation, db: Session):
-        """Finaliza a conversa adequadamente"""
-        logger.info("=== FINALIZANDO CONVERSA ===")
+                    await self.whatsapp.send_text(phone, 
+                        "Desculpe, houve um erro interno. Nosso atendimento entrará em contato.")
+                except:
+                    pass  # Último recurso - não pode falhar aqui
+    
+    def _is_global_command(self, message: str) -> bool:
+        """Verifica se é um comando global - VERSÃO SUPER RESTRITIVA"""
+        # 🔧 CORREÇÃO RADICAL: Apenas comandos textuais explícitos
+        explicit_commands = ['sair', 'menu', 'ajuda', 'cancelar']
+        message_clean = message.strip().lower()
         
-        # Salvar estado final
-        conversa.state = "finalizada"
-        conversa.context = {"finalizada_em": datetime.utcnow().isoformat()}
-        self._save_conversation_state(conversa, db)
+        # Log para debug
+        logger.info(f"🔍 Verificando comando global: '{message_clean}'")
         
-        # Enviar mensagem de despedida
-        await self.whatsapp.send_message(phone, """
-👋 *Obrigado por usar nossos serviços!*
-
-Tenha um ótimo dia! 😊
-
-Para iniciar uma nova conversa, digite *oi* ou *1*.
-""")
+        # ✅ CORREÇÃO RADICAL: Remover completamente o "0" dos comandos globais
+        # O "0" só funcionará quando explicitamente no handler do menu
+        is_global = message_clean in explicit_commands
         
-        # Limpar cache
-        if phone in self.conversation_cache:
-            del self.conversation_cache[phone]
+        logger.info(f"   - É comando global? {is_global}")
+        logger.info(f"   - Comandos aceitos: {explicit_commands}")
         
-        logger.info("Conversa finalizada com sucesso")
-
-    async def _process_message_by_state(self, phone: str, message: str, conversa: Conversation, 
-                                      db: Session, nlu_result: Dict, estado: str, contexto: Dict, suggested_action: Dict):
-        """Processa mensagem baseado no estado atual com validação de contexto"""
+        return is_global
+    
+    def _get_status_message(self, state: str, context: dict) -> str:
+        """Retorna mensagem descritiva do estado atual"""
+        acao = context.get('acao', '')
         
-        logger.info(f"=== PROCESSANDO POR ESTADO: {estado} ===")
-        logger.info(f"Mensagem: '{message}'")
-        logger.info(f"Estado atual: '{estado}'")
-        logger.info(f"Contexto: {contexto}")
+        status_map = {
+            'aguardando_cpf': f"Aguardando seu CPF para {acao or 'continuar'}",
+            'confirmando_paciente': "Aguardando confirmação dos seus dados",
+            'paciente_nao_encontrado': "Aguardando nova tentativa de CPF ou escolha de opção",
+            'escolhendo_data': "Aguardando escolha da data do agendamento",
+            'escolhendo_horario': "Aguardando escolha do horário",
+            'confirmando_agendamento': "Aguardando confirmação final do agendamento",
+            'visualizando_agendamentos': "Mostrando seus agendamentos",
+            'lista_espera': "Processando lista de espera",
+            'inicio': "Início da conversa",
+            'menu_principal': "No menu principal"
+        }
         
-        # SOLUÇÃO DEFINITIVA: Processar baseado no estado ATUAL, não na mensagem
-        if estado == "inicio":
-            await self._handle_inicio_advanced(phone, message, conversa, db, nlu_result)
-        elif estado == "menu_principal":
-            await self._handle_menu_principal(phone, message, conversa, db)
-        elif estado == "aguardando_cpf":
-            await self._handle_cpf(phone, message, conversa, db)
-        elif estado == "escolhendo_data":
-            await self._handle_escolha_data(phone, message, conversa, db)
-        elif estado == "escolhendo_horario":
-            await self._handle_escolha_horario(phone, message, conversa, db)
-        elif estado == "confirmando_agendamento":
-            await self._handle_confirmacao(phone, message, conversa, db)
-        elif estado == "visualizando_agendamentos":
-            await self._handle_visualizar_agendamentos(phone, message, conversa, db)
-        elif estado == "cancelando_consulta":
-            await self._handle_cancelamento(phone, message, conversa, db)
-        elif estado == "confirmando_cancelamento":
-            await self._handle_confirmar_cancelamento(phone, message, conversa, db)
-        elif estado == "lista_espera":
-            await self._handle_lista_espera(phone, message, conversa, db)
-        elif estado == "escolhendo_tipo_consulta":
-            await self._handle_escolha_tipo_consulta(phone, message, conversa, db)
-
-        elif estado == "aguardando_observacoes":
-            await self._handle_observacoes(phone, message, conversa, db)
-        elif estado == "finalizada":
-            # Reativar conversa se necessário
-            conversa.state = "inicio"
-            self._save_conversation_state(conversa, db)
-            await self._handle_inicio_advanced(phone, message, conversa, db, nlu_result)
-        else:
-            logger.error(f"Estado desconhecido: {estado}")
-            await self._reset_to_inicio(phone, conversa, db)
-
-    async def _handle_processing_error(self, phone: str, conversa: Conversation, db: Session, 
-                                     error: Exception, estado: str, message: str):
-        """Trata erros durante o processamento"""
-        logger.error(f"Erro durante processamento: {str(error)}")
+        return status_map.get(state, f"Estado: {state}")
+    
+    async def _handle_global_command(self, phone: str, message: str, conversa: Conversation, db: Session):
+        """Trata comandos globais"""
+        cmd = message.strip().lower()
         
+        logger.info(f"🌐 Processando comando global: '{cmd}'")
+        logger.info(f"   - Estado atual antes: {conversa.state}")
+        
+        if cmd in ['sair', '0']:
+            # 🔧 CORREÇÃO: Lógica do '0' corrigida
+            if cmd == '0' and conversa.state in ['escolhendo_data', 'escolhendo_horario']:
+                # Em estados de escolha numérica, '0' pode ser uma opção válida (voltar)
+                logger.info(f"   🔙 '0' em estado de escolha, processando como opção válida")
+                return
+            # Para 'sair' ou '0' no menu principal, sempre finalizar
+            await self._finalizar_conversa(phone, conversa, db)
+        elif cmd in ['menu', 'ajuda']:
+            await self._mostrar_menu_principal(phone, conversa, db)
+        elif cmd == 'cancelar':
+            await self._cancelar_operacao_atual(phone, conversa, db)
+    
+    async def _process_by_state(self, phone: str, message: str, conversa: Conversation, 
+                               db: Session, nlu_result: Dict):
+        """Processa mensagem baseado no estado atual"""
+        estado = conversa.state or "inicio"
+        # 🔧 CORREÇÃO: Rastrear último estado para comandos globais
+        self._last_state = estado
+        
+        logger.info(f"🎯 PROCESSANDO POR ESTADO")
+        logger.info(f"   - Estado detectado: '{estado}'")
+        logger.info(f"   - Mensagem: '{message}'")
+        
+        handlers = {
+            "inicio": self._handle_inicio,
+            "menu_principal": self._handle_menu_principal,
+            "aguardando_cpf": self._handle_cpf,
+            "confirmando_paciente": self._handle_confirmacao_paciente,
+            "paciente_nao_encontrado": self._handle_paciente_nao_encontrado_opcoes,
+            "escolhendo_data": self._handle_escolha_data,
+            "escolhendo_horario": self._handle_escolha_horario,
+            "confirmando_agendamento": self._handle_confirmacao,
+            "visualizando_agendamentos": self._handle_visualizar_agendamentos,
+            "lista_espera": self._handle_lista_espera,
+            "agendamento_sem_dias": self._handle_agendamento_sem_dias,
+            "data_sem_horarios": self._handle_data_sem_horarios,
+            "finalizada": self._handle_conversa_finalizada  # 🔧 CORREÇÃO: Estado finalizada
+        }
+        
+        handler = handlers.get(estado, self._handle_estado_desconhecido)
+        handler_name = handler.__name__ if hasattr(handler, '__name__') else str(handler)
+        logger.info(f"🔧 Handler selecionado: {handler_name}")
+        
+        # 🔧 CORREÇÃO: Dispatcher resiliente com try/catch
         try:
-            await self.analytics.track_error(phone, "processing_error", str(error), {
-                "state": estado,
-                "message": message
-            })
+            await handler(phone, message, conversa, db, nlu_result)
         except Exception as e:
-            logger.warning(f"Erro no analytics: {str(e)}")
-        
-        # Recuperação de erro
-        try:
-            error_response, error_context = await self.error_recovery.handle_api_error(
-                ErrorType.UNKNOWN_ERROR, 
-                {"error": str(error), "state": estado}, 
-                phone, 
-                estado
-            )
-            await self.whatsapp.send_message(phone, error_response)
-        except Exception as e:
-            logger.error(f"Erro na recuperação: {str(e)}")
-            await self.whatsapp.send_message(phone, """
-⚠️ *Erro no sistema*
-
-Estamos enfrentando dificuldades técnicas no momento.
-
-Digite *1* para voltar ao menu principal ou *0* para sair.
-""")
-        
-        # Se erro persistir, oferecer suporte humano
-        if self.error_recovery.should_offer_human_support(phone):
-            await self._offer_human_support(phone, conversa, db)
-
-    async def _handle_critical_error(self, phone: str, message: str, message_id: str, error: Exception):
-        """Trata erros críticos"""
-        logger.error(f"Erro crítico no processamento: {str(error)}")
-        
-        try:
-            await self.analytics.track_error(phone, "critical_error", str(error), {
-                "message": message,
-                "message_id": message_id
-            })
-        except Exception as e:
-            logger.warning(f"Erro no analytics: {str(e)}")
-        
-        # Enviar mensagem de erro genérica
-        try:
-            error_message = """
-⚠️ *Erro no sistema*
-
-Estamos enfrentando dificuldades técnicas no momento.
-
-📞 *Atendimento humano:*
-Digite *0* para falar com um atendente que pode te ajudar.
-
-🔄 *Tente novamente em alguns minutos*
-"""
-            await self.whatsapp.send_message(phone, error_message)
-        except Exception as e:
-            logger.error(f"Erro ao enviar mensagem de erro: {str(e)}")
-
-    async def _reset_to_inicio(self, phone: str, conversa: Conversation, db: Session):
-        """Reseta conversa para o estado inicial"""
-        conversa.state = "inicio"
-        conversa.context = {}
-        db.commit()
-        
-        # Executar as funções de formatação
-        saudacao = FormatterUtils.formatar_saudacao()
-        menu_principal = FormatterUtils.formatar_menu_principal()
-        
-        await self.whatsapp.send_message(phone, f"""
-🔄 *Conversa reiniciada*
-
-Vamos começar novamente! 
-
-{saudacao}
-
-{menu_principal}
-""")
-
-    async def _offer_human_support(self, phone: str, conversa: Conversation, db: Session):
-        """Oferece suporte humano"""
-        await self.whatsapp.send_message(phone, """
-📞 *Atendimento Humano*
-
-Identificamos que você pode precisar de ajuda especializada.
-
-🔄 *Transferindo para um atendente...*
-
-⏳ *Tempo de espera estimado:* 2-5 minutos
-
-Enquanto isso, você pode:
-• Aguardar a conexão
-• Tentar novamente em alguns minutos
-• Verificar sua conexão com a internet
-
-Obrigado pela paciência! 🙏
-""")
-        
-        # Aqui você pode integrar com sistema de tickets ou fila de atendimento
-        await self.analytics.track_user_action(phone, "human_support_requested")
-
-    async def _handle_inicio_advanced(self, phone: str, message: str, conversa: Conversation, db: Session, nlu_result: Dict):
-        """Handler avançado do estado inicial com NLU - VERSÃO ROBUSTA"""
-        
-        logger.info(f"=== _handle_inicio_advanced DEBUG ===")
-        logger.info(f"Mensagem: '{message}'")
-        logger.info(f"Estado atual: {conversa.state}")
-        logger.info(f"NLU Result: {nlu_result}")
-        
-        # Verificar se é saudação
-        if nlu_result.get("is_greeting") or nlu_result.get("intent") == "saudacao":
-            logger.info("→ Saudação detectada")
-            await self._handle_inicio(phone, message, conversa, db)
-            return
-        
-        # Verificar intenções específicas
-        intent = nlu_result.get("intent", "")
-        if intent == "agendar":
-            logger.info("→ Intenção direta: agendar")
-            await self.whatsapp.send_message(phone, "Vamos agendar sua consulta! 📅\n\nPor favor, digite seu *CPF* (apenas números):")
-            conversa.state = "aguardando_cpf"
-            conversa.context = {"acao": "agendar"}
-            self._save_conversation_state(conversa, db)
-            return
-            
-        elif intent == "visualizar":
-            logger.info("→ Intenção direta: visualizar")
-            await self.whatsapp.send_message(phone, "Para ver seus agendamentos, preciso do seu *CPF*.\n\nDigite seu CPF (apenas números):")
-            conversa.state = "aguardando_cpf"
-            conversa.context = {"acao": "visualizar"}
-            self._save_conversation_state(conversa, db)
-            return
-            
-        elif intent == "cancelar":
-            logger.info("→ Intenção direta: cancelar")
-            await self.whatsapp.send_message(phone, "Para cancelar uma consulta, preciso do seu *CPF*.\n\nDigite seu CPF (apenas números):")
-            conversa.state = "aguardando_cpf"
-            conversa.context = {"acao": "cancelar"}
-            self._save_conversation_state(conversa, db)
-            return
-            
-        elif intent == "ajuda":
-            logger.info("→ Intenção direta: ajuda")
-            await self.whatsapp.send_message(phone, f"""
-💡 *Como posso te ajudar?*
-
-Sou o assistente virtual da {settings.clinic_name} e posso te ajudar com:
-
-📅 *Agendamentos:* Marcar, ver ou cancelar consultas
-👥 *Lista de espera:* Entrar na fila quando não há vagas
-📞 *Atendimento:* Falar com um humano quando precisar
-
-{FormatterUtils.formatar_menu_principal()}
-""")
-            conversa.state = "menu_principal"
-            self._save_conversation_state(conversa, db)
-            return
-        
-        # FALLBACK: Mostrar menu principal
-        logger.info("→ Fallback: Mostrando menu principal")
-        await self._handle_inicio(phone, message, conversa, db)
-        
-        logger.info("=== FIM _handle_inicio_advanced ===")
-
-    async def _handle_inicio(self, phone: str, message: str,
-                           conversa: Conversation, db: Session):
+            logger.exception(f"❌ Erro dentro do handler de estado '{estado}': {str(e)}")
+            logger.error(f"Handler: {handler_name}, Telefone: {phone}, Mensagem: {message}")
+            await self._handle_error(phone, conversa, db)
+    
+    async def _handle_inicio(self, phone: str, message: str, conversa: Conversation, 
+                           db: Session, nlu_result: Dict):
         """Handler do estado inicial"""
-
-        logger.info(f"=== _handle_inicio DEBUG ===")
-        logger.info(f"Mensagem: '{message}'")
-        logger.info(f"Estado atual: {conversa.state}")
-
-        # Verificar se é primeira vez ou retorno
-        if message.strip().lower() in ['oi', 'olá', 'ola', 'hi', 'hello']:
-            # Enviar saudação e menu
-            saudacao = FormatterUtils.formatar_saudacao()
-            menu_text = f"""
+        # Enviar saudação e menu
+        await self._mostrar_menu_principal(phone, conversa, db)
+    
+    async def _mostrar_menu_principal(self, phone: str, conversa: Conversation, db: Session):
+        """Mostra menu principal"""
+        saudacao = FormatterUtils.formatar_saudacao()
+        menu = f"""
 {saudacao} Bem-vindo(a) à *{settings.clinic_name}*! 🏥
 
-Sou seu assistente virtual e estou aqui para ajudar com seus agendamentos.
+Sou seu assistente virtual. Como posso ajudar?
 
-{FormatterUtils.formatar_menu_principal()}
-            """
+*Digite o número da opção desejada:*
 
-            await self.whatsapp.send_text(phone, menu_text)
+1️⃣ *Agendar consulta*
+2️⃣ *Ver meus agendamentos*
+3️⃣ *Cancelar consulta*
+4️⃣ *Lista de espera*
+5️⃣ *Falar com atendente*
 
-            # Atualizar estado
-            conversa.state = "menu_principal"
-            db.commit()
-        else:
-            # Se não for uma saudação, tratar como opção do menu
-            await self._handle_menu_principal(phone, message, conversa, db)
-
-    async def _handle_menu_principal(self, phone: str, message: str,
-                                   conversa: Conversation, db: Session):
-        """Handler do menu principal - VERSÃO ROBUSTA"""
-
-        logger.info(f"=== _handle_menu_principal DEBUG ===")
-        logger.info(f"Mensagem: '{message}'")
-        logger.info(f"Estado atual: {conversa.state}")
+Digite *0* para sair
+"""
+        await self.whatsapp.send_text(phone, menu)
         
-        opcao = message.strip()
-        logger.info(f"Opção processada: '{opcao}'")
+        conversa.state = "menu_principal"
+        conversa.context = {"expecting": "menu_option"}  # 🔧 CORREÇÃO: Flag expecting
         
-        # Garantir que estamos no estado correto
-        logger.info(f"Estado antes da correção: {conversa.state}")
-        if conversa.state != "menu_principal":
-            conversa.state = "menu_principal"
-            self._save_conversation_state(conversa, db)
-            logger.info("Estado corrigido para menu_principal")
-        else:
-            logger.info("Estado já estava correto (menu_principal)")
-
-        # VALIDAÇÃO ROBUSTA: Verificar se é realmente uma opção de menu válida
-        if opcao == "1":
-            logger.info("→ Opção 1 selecionada: Agendar consulta")
-            await self.whatsapp.send_text(
-                phone,
-                "Vamos agendar sua consulta! 📅\n\n"
-                "Por favor, digite seu *CPF* (apenas números):"
-            )
-            self._transition_to_state(conversa, "aguardando_cpf", {"acao": "agendar"}, db)
-
-        elif opcao == "2":
-            logger.info("→ Opção 2 selecionada: Ver agendamentos")
-            await self.whatsapp.send_text(
-                phone,
-                "Para ver seus agendamentos, preciso do seu *CPF*.\n\n"
-                "Digite seu CPF (apenas números):"
-            )
-            self._transition_to_state(conversa, "aguardando_cpf", {"acao": "visualizar"}, db)
-
-        elif opcao == "3":
-            logger.info("→ Opção 3 selecionada: Cancelar consulta")
-            await self.whatsapp.send_text(
-                phone,
-                "Para cancelar uma consulta, preciso do seu *CPF*.\n\n"
-                "Digite seu CPF (apenas números):"
-            )
-            self._transition_to_state(conversa, "aguardando_cpf", {"acao": "cancelar"}, db)
-
-        elif opcao == "4":
-            logger.info("→ Opção 4 selecionada: Lista de espera")
-            await self.whatsapp.send_text(
-                phone,
-                "Vou adicionar você na lista de espera! 📝\n\n"
-                "Digite seu *CPF* (apenas números):"
-            )
-            self._transition_to_state(conversa, "aguardando_cpf", {"acao": "lista_espera"}, db)
-
-        elif opcao == "5":
-            logger.info("→ Opção 5 selecionada: Falar com atendente")
-            await self.whatsapp.send_text(
-                phone,
-                "Vou transferir você para um atendente! 👨‍⚕️\n\n"
-                "Em breve alguém da nossa equipe entrará em contato.\n\n"
-                "Horário de atendimento:\n"
-                "📅 Segunda a Sexta: 8h às 18h\n"
-                "📅 Sábado: 8h às 12h\n\n"
-                "📞 (31) 9999-9999\n"
-                "📧 contato@clinicagabrielanassif.com.br\n\n"
-                "Digite *1* para voltar ao menu principal."
-            )
-            self._transition_to_state(conversa, "inicio", {}, db)
-
-        elif opcao.lower() in ['sair', 'tchau', 'bye', '0']:
-            logger.info("→ Solicitação de saída detectada")
-            await self.whatsapp.send_text(
-                phone,
-                "Obrigado por usar nossos serviços! 😊\n\n"
-                "Tenha um ótimo dia!\n\n"
-                "Para voltar, digite *1*."
-            )
-            self._transition_to_state(conversa, "inicio", {}, db)
-
-        else:
-            # VALIDAÇÃO: Verificar se não é um CPF (números longos)
-            if len(opcao) >= 10 and opcao.isdigit():
-                logger.warning(f"CPF detectado no menu principal: {opcao}")
-                await self.whatsapp.send_text(
-                    phone,
-                    "⚠️ Parece que você digitou um CPF!\n\n"
-                    "Para agendar uma consulta, primeiro selecione uma opção:\n\n"
-                    "1️⃣ *Agendar consulta*\n"
-                    "2️⃣ *Ver meus agendamentos*\n"
-                    "3️⃣ *Cancelar consulta*\n"
-                    "4️⃣ *Lista de espera*\n"
-                    "5️⃣ *Falar com atendente*\n\n"
-                    "Digite o número da opção desejada."
-                )
+        # 🔧 CORREÇÃO: Persistir estado imediatamente
+        db.commit()
+        logger.info(f"💾 Estado 'menu_principal' salvo, expecting: menu_option")
+    
+    async def _handle_menu_principal(self, phone: str, message: str, conversa: Conversation,
+                                   db: Session, nlu_result: Dict):
+        """Handler do menu principal - Versão normalizada e resiliente"""
+        # 🔧 CORREÇÃO: Validar expecting apenas se existir e for diferente de menu_option
+        # Não bloquear se expecting não estiver definido (compatibilidade)
+        expecting = conversa.context.get("expecting")
+        if not self._is_global_command(message) and expecting and expecting not in ["menu_option", None]:
+            logger.warning(f"❌ Opção de menu fora de contexto - expecting: {expecting}")
+            await self.whatsapp.send_text(phone, "Vou mostrar o menu principal novamente:")
+            await self._mostrar_menu_principal(phone, conversa, db)
+            return
+        
+        opcao = message.strip().lower()
+        
+        logger.info(f"🎯 MENU PRINCIPAL - Processando opção: '{opcao}'")
+        logger.info(f"📱 Telefone: {phone}")
+        logger.info(f"🔄 Estado atual: {conversa.state}")
+        logger.info(f"📋 Contexto atual: {conversa.context}")
+        
+        # 🔧 CORREÇÃO: Menu principal unificado com expecting flag
+        opcoes = {
+            "1": ("agendar", "aguardando_cpf", "Vamos agendar sua consulta! 📅\n\nPor favor, digite seu *CPF* (apenas números):"),
+            "2": ("visualizar", "aguardando_cpf", "Para ver seus agendamentos, preciso do seu *CPF*.\n\nDigite seu CPF (apenas números):"),
+            "3": ("cancelar", "aguardando_cpf", "Para cancelar uma consulta, preciso do seu *CPF*.\n\nDigite seu CPF (apenas números):"),
+            "4": ("lista_espera", "aguardando_cpf", "Vou adicionar você na lista de espera! 📝\n\nDigite seu *CPF* (apenas números):"),
+            "5": ("atendente", "menu_principal", self._mostrar_contato_atendente)
+        }
+        
+        if opcao in opcoes:
+            acao, novo_estado, mensagem = opcoes[opcao]
+            
+            logger.info(f"✅ Opção '{opcao}' encontrada!")
+            logger.info(f"   - Ação: {acao}")
+            logger.info(f"   - Novo estado: {novo_estado}")
+            
+            if callable(mensagem):
+                await mensagem(phone)
+                # Manter estado menu_principal para atendente
+                conversa.state = "menu_principal"
+                conversa.context = {}
+                logger.info(f"🔧 Função chamada - Estado: {conversa.state}")
             else:
-                logger.info(f"Opção inválida: {opcao}")
-                await self.whatsapp.send_text(
-                    phone,
-                    "Opção inválida! 😅\n\n"
-                    "Por favor, digite um número de *1 a 5*.\n\n"
-                    "Ou digite *0* para sair."
-                )
-
-        logger.info(f"Estado final: {conversa.state}")
-        logger.info(f"Contexto final: {conversa.context}")
-        logger.info("=== FIM _handle_menu_principal DEBUG ===")
-
-    async def _handle_cpf(self, phone: str, message: str,
-                         conversa: Conversation, db: Session):
-        """Handler para validação de CPF - VERSÃO ROBUSTA"""
+                await self.whatsapp.send_text(phone, mensagem)
+                conversa.state = novo_estado or "menu_principal"
+                # 🔧 CORREÇÃO: Adicionar flag expecting no contexto
+                conversa.context = {"acao": acao, "expecting": "cpf"} if acao else {}
+                logger.info(f"📝 Mensagem enviada - Estado: {conversa.state}")
+                logger.info(f"📋 Contexto atualizado: {conversa.context}")
+            
+            # 🔧 CORREÇÃO: Persistir estado imediatamente
+            db.commit()
+            logger.info(f"💾 Estado salvo no banco: {conversa.state}")
+        else:
+            logger.warning(f"❌ Opção inválida: '{opcao}'")
+            logger.warning(f"   - Tipo: {type(opcao)}")
+            logger.warning(f"   - Opções válidas: {list(opcoes.keys())}")
+            await self.whatsapp.send_text(phone, 
+                "❌ Opção inválida! Por favor, digite um número de *1 a 5*.")
+            # Manter estado atual após opção inválida
+            logger.info(f"🔄 Mantendo estado atual: {conversa.state}")
+            db.commit()
+    
+    async def _handle_cpf(self, phone: str, message: str, conversa: Conversation, 
+                         db: Session, nlu_result: Dict):
+        """Handler para validação de CPF com fallback robusto"""
+        # 🔧 CORREÇÃO: Validar expecting apenas se existir e for claramente errado
+        # Não bloquear se expecting não estiver definido (compatibilidade)
+        expecting = conversa.context.get("expecting")
+        if expecting and expecting not in ["cpf", None] and expecting != "menu_option":
+            logger.warning(f"❌ CPF fora de contexto - expecting: {expecting}")
+            await self.whatsapp.send_text(phone, "Desculpe, não entendi. Voltando ao menu principal.")
+            await self._mostrar_menu_principal(phone, conversa, db)
+            return
         
-        logger.info(f"=== _handle_cpf DEBUG ===")
-        logger.info(f"CPF recebido: '{message}'")
-        logger.info(f"Estado atual: {conversa.state}")
-        logger.info(f"Contexto atual: {conversa.context}")
-
-        # Limpar CPF
         cpf = re.sub(r'[^0-9]', '', message)
-        logger.info(f"CPF limpo: {cpf}")
-
+        
+        logger.info(f"🔍 Processando CPF: {cpf}")
+        
         # Validar CPF
         if not self.validator.validar_cpf(cpf):
-            logger.info("CPF inválido detectado")
-            await self.whatsapp.send_text(
-                phone,
-                "❌ CPF inválido!\n\n"
-                "Por favor, digite um CPF válido (apenas números):\n\n"
-                "Exemplo: 12345678901\n\n"
-                "Ou digite *0* para voltar ao menu principal."
-            )
+            logger.warning(f"❌ CPF inválido: {cpf}")
+            await self.whatsapp.send_text(phone,
+                "❌ CPF inválido!\n\nPor favor, digite um CPF válido (11 dígitos).\n\nExemplo: 12345678901")
             return
-
-        # Buscar paciente na API
-        logger.info("Buscando paciente na API...")
-        paciente = await self.gestaods.buscar_paciente_cpf(cpf)
-        logger.info(f"Paciente encontrado: {paciente is not None}")
-
-        if not paciente:
-            logger.info("Paciente não encontrado na API")
-            await self.whatsapp.send_text(
-                phone,
-                "❌ CPF não encontrado em nosso sistema.\n\n"
-                "Por favor, verifique o número e tente novamente.\n\n"
-                "Se você é um novo paciente, entre em contato "
-                "pelo telefone para realizar seu cadastro.\n\n"
-                "📞 (31) 9999-9999\n"
-                "📧 contato@clinicagabrielanassif.com.br\n\n"
-                "Digite *1* para voltar ao menu principal."
-            )
-            conversa.state = "inicio"
-            self._save_conversation_state(conversa, db)
-            return
-
-        # Salvar dados do paciente no contexto
+        
+        logger.info(f"✅ CPF válido, buscando paciente...")
+        
+        # 🔧 CORREÇÃO: Verificar ação antes de buscar paciente
         contexto = conversa.context or {}
-        contexto['paciente'] = {
-            'id': paciente.get('id'),
-            'nome': paciente.get('nome'),
-            'cpf': cpf,
-            'telefone': paciente.get('telefone', phone)
-        }
+        acao = contexto.get("acao")
+        
+        if not acao:
+            logger.error(f"❌ Ação não encontrada no contexto: {contexto}")
+            await self.whatsapp.send_text(phone, "Desculpe, não entendi o que você queria fazer. Voltando ao menu principal.")
+            conversa.state = "menu_principal"
+            conversa.context = {}
+            db.commit()
+            await self._mostrar_menu_principal(phone, conversa, db)
+            return
+        
+        logger.info(f"🎯 Ação identificada: {acao}")
+        
+        # Buscar paciente
+        paciente = await self.gestaods.buscar_paciente_cpf(cpf)
+        
+        logger.info(f"📋 Resultado da busca: {paciente}")
+        
+        if not paciente:
+            logger.warning(f"❌ Paciente não encontrado para CPF: {cpf}")
+            await self._handle_paciente_nao_encontrado(phone, cpf, conversa, db)
+            return
+        
+        logger.info(f"✅ Paciente encontrado: {paciente.get('nome', 'N/A')}")
+        
+        # ✅ MOSTRAR CONFIRMAÇÃO DE PACIENTE (como nos exemplos)
+        logger.info(f"🔄 Chamando _mostrar_confirmacao_paciente...")
+        await self._mostrar_confirmacao_paciente(phone, paciente, conversa, db)
+    
+    async def _handle_paciente_nao_encontrado(self, phone: str, cpf: str, 
+                                            conversa: Conversation, db: Session):
+        """Trata quando paciente não é encontrado"""
+        mensagem = """
+❌ *CPF não encontrado em nosso sistema*
+
+Você pode ser um novo paciente! 
+
+*O que deseja fazer?*
+
+1️⃣ Tentar outro CPF
+2️⃣ Realizar cadastro
+3️⃣ Falar com atendente
+0️⃣ Voltar ao menu
+
+Digite o número da opção:
+"""
+        await self.whatsapp.send_text(phone, mensagem)
+        
+        contexto = conversa.context or {}
+        contexto['cpf_tentativa'] = cpf
         conversa.context = contexto
-
-        # Continuar fluxo baseado na ação
-        acao = contexto.get('acao')
-        logger.info(f"Ação a ser executada: {acao}")
-
-        if acao == "agendar":
-            logger.info("Executando _iniciar_agendamento")
-            await self._iniciar_agendamento(phone, paciente, conversa, db)
-        elif acao == "visualizar":
-            logger.info("Executando _mostrar_agendamentos")
-            await self._mostrar_agendamentos(phone, paciente, conversa, db)
-        elif acao == "cancelar":
-            logger.info("Executando _iniciar_cancelamento")
-            await self._iniciar_cancelamento(phone, paciente, conversa, db)
-        elif acao == "lista_espera":
-            logger.info("Executando _adicionar_lista_espera")
-            await self._adicionar_lista_espera(phone, paciente, conversa, db)
-
-        logger.info(f"Estado final após _handle_cpf: {conversa.state}")
-        logger.info(f"Contexto final após _handle_cpf: {conversa.context}")
-        self._save_conversation_state(conversa, db)
-        logger.info("=== FIM _handle_cpf DEBUG ===")
-
-    async def _iniciar_agendamento(self, phone: str, paciente: Dict,
+        conversa.state = "paciente_nao_encontrado"
+        db.commit()
+    
+    async def _handle_paciente_nao_encontrado_opcoes(self, phone: str, message: str,
+                                                    conversa: Conversation, db: Session, nlu_result: Dict):
+        """Handler para quando paciente não é encontrado"""
+        opcao = message.strip()
+        
+        if opcao == "1":
+            # Tentar outro CPF
+            await self.whatsapp.send_text(phone, "Por favor, digite seu CPF novamente:")
+            conversa.state = "aguardando_cpf"
+            db.commit()
+        elif opcao == "2":
+            # Realizar cadastro
+            await self.whatsapp.send_text(phone, 
+                "📋 *Para realizar seu cadastro:*\n\n"
+                f"Entre em contato conosco:\n"
+                f"📞 Telefone: {settings.clinic_phone}\n"
+                f"📧 Email: {settings.clinic_email}\n\n"
+                "Nosso atendimento fará seu cadastro e agendamento.\n\n"
+                "Digite *1* para voltar ao menu principal.")
+            conversa.state = "menu_principal"
+            db.commit()
+        elif opcao == "3":
+            # Falar com atendente
+            await self._mostrar_contato_atendente(phone)
+            conversa.state = "menu_principal"
+            db.commit()
+        elif opcao == "0":
+            # Voltar ao menu
+            await self._mostrar_menu_principal(phone, conversa, db)
+        else:
+            await self.whatsapp.send_text(phone,
+                "❌ Opção inválida!\n\n"
+                "Digite:\n"
+                "*1* - Tentar outro CPF\n"
+                "*2* - Realizar cadastro\n"
+                "*3* - Falar com atendente\n"
+                "*0* - Voltar ao menu")
+    
+    async def _iniciar_agendamento(self, phone: str, paciente: Dict, 
                                   conversa: Conversation, db: Session):
         """Inicia processo de agendamento"""
-
         nome = paciente.get('nome', 'Paciente')
-
-        # Mostrar tipos de consulta disponíveis
-        mensagem = f"""
-Olá, *{nome}*! 😊
-
-Vamos agendar sua consulta com a *Dra. Gabriela Nassif*.
-
-🏥 *Tipos de consulta disponíveis:*
-
-*1* - Consulta médica geral
-*2* - Consulta especializada
-*3* - Exame de rotina
-*4* - Retorno médico
-*5* - Avaliação inicial
-
-Digite o número do tipo de consulta desejada:
-        """
-
-        await self.whatsapp.send_text(phone, mensagem)
-        conversa.state = "escolhendo_tipo_consulta"
-
-    async def _handle_escolha_tipo_consulta(self, phone: str, message: str,
-                                           conversa: Conversation, db: Session):
-        """Handler para escolha do tipo de consulta"""
-
-        opcao = message.strip()
-        tipos_consulta = {
-            "1": "Consulta médica geral",
-            "2": "Consulta especializada", 
-            "3": "Exame de rotina",
-            "4": "Retorno médico",
-            "5": "Avaliação inicial"
-        }
-
-        if opcao in tipos_consulta:
-            tipo_escolhido = tipos_consulta[opcao]
-            
-            # Salvar tipo no contexto
-            contexto = conversa.context
-            contexto['tipo_consulta'] = tipo_escolhido
-            contexto['profissional'] = "Dra. Gabriela Nassif"  # Única profissional
-            conversa.context = contexto
-
-            # Mostrar confirmação do profissional (único disponível)
-            mensagem = f"""
-✅ Tipo selecionado: *{tipo_escolhido}*
-
-👩‍⚕️ *Profissional:* Dra. Gabriela Nassif (Clínico Geral)
-
-Agora vamos escolher a data da consulta.
-            """
-
-            await self.whatsapp.send_text(phone, mensagem)
-            
-            # Ir direto para escolha de data (pular escolha de profissional)
-            await self._handle_escolha_profissional(phone, "1", conversa, db)
-
-        else:
-            await self.whatsapp.send_text(
-                phone,
-                "❌ Opção inválida!\n\n"
-                "Por favor, digite um número de *1 a 5*."
-            )
-
-        db.commit()
-
-    async def _handle_escolha_profissional(self, phone: str, message: str,
-                                          conversa: Conversation, db: Session):
-        """Handler para escolha do profissional (agora apenas confirma Dra. Gabriela)"""
-
-        # Como só há uma profissional, sempre confirmar Dra. Gabriela
-        profissional_escolhido = "Dra. Gabriela Nassif"
         
-        # Salvar profissional no contexto
-        contexto = conversa.context
-        contexto['profissional'] = profissional_escolhido
-        conversa.context = contexto
-
-        # Gerar opções de datas (próximos 7 dias úteis)
-        datas_disponiveis = self._gerar_datas_disponiveis()
-
-        mensagem = f"""
-✅ Profissional: *{profissional_escolhido}*
-
-📅 *Escolha uma data:*
-        """
-
-        # Adicionar opções de data
-        for i, data in enumerate(datas_disponiveis, 1):
-            mensagem += f"\n*{i}* - {data['formatado']}"
-
-        mensagem += "\n\nDigite o número da data desejada:"
-
+        # Buscar dias disponíveis
+        dias = await self.gestaods.buscar_dias_disponiveis()
+        
+        if not dias:
+            # ✅ PRESERVAR contexto mesmo quando API falha
+            await self.whatsapp.send_text(phone,
+                f"😔 Olá {nome}!\n\n"
+                "No momento não encontrei dias disponíveis para agendamento.\n\n"
+                "*O que deseja fazer?*\n\n"
+                "1️⃣ Tentar novamente\n"
+                "2️⃣ Entrar na lista de espera\n"
+                "3️⃣ Falar com atendente\n"
+                "0️⃣ Voltar ao menu")
+            
+            # ✅ Manter contexto mas mudar para estado de fallback
+            contexto = conversa.context or {}
+            contexto['expecting'] = 'agendamento_sem_dias'  # 🔧 CORREÇÃO: Flag expecting
+            conversa.context = contexto
+            conversa.state = "agendamento_sem_dias"
+            
+            # 🔧 CORREÇÃO: Persistir estado imediatamente
+            db.commit()
+            logger.info(f"💾 Estado 'agendamento_sem_dias' salvo, expecting: agendamento_sem_dias")
+            return
+        
+        # Formatar mensagem com dias disponíveis
+        mensagem = f"Olá, *{nome}*! 😊\n\n📅 *Escolha uma data:*\n\n"
+        
+        for i, dia in enumerate(dias[:7], 1):  # Limitar a 7 dias
+            data = datetime.fromisoformat(dia['data'])
+            data_formatada = data.strftime('%d/%m/%Y - %A').replace(
+                'Monday', 'Segunda').replace('Tuesday', 'Terça').replace(
+                'Wednesday', 'Quarta').replace('Thursday', 'Quinta').replace(
+                'Friday', 'Sexta').replace('Saturday', 'Sábado').replace(
+                'Sunday', 'Domingo')
+            mensagem += f"*{i}* - {data_formatada}\n"
+        
+        mensagem += "\nDigite o número da data desejada:"
+        
         await self.whatsapp.send_text(phone, mensagem)
-
-        # Salvar datas no contexto
-        contexto['datas_disponiveis'] = datas_disponiveis
+        
+        contexto = conversa.context or {}
+        contexto['dias_disponiveis'] = dias[:7]
+        contexto['expecting'] = 'escolha_data'  # 🔧 CORREÇÃO: Flag expecting
         conversa.context = contexto
         conversa.state = "escolhendo_data"
-
+        
+        # 🔧 CORREÇÃO: Persistir estado imediatamente
         db.commit()
-
-    async def _handle_escolha_data(self, phone: str, message: str,
-                                  conversa: Conversation, db: Session):
-        """Handler para escolha de data"""
-
+        logger.info(f"💾 Estado 'escolhendo_data' salvo, expecting: escolha_data")
+    
+    async def _handle_escolha_data(self, phone: str, message: str, conversa: Conversation,
+                                  db: Session, nlu_result: Dict):
+        """Handler para escolha de data com validação expecting"""
+        # 🔧 CORREÇÃO: Validar expecting apenas se claramente errado
+        expecting = conversa.context.get("expecting")
+        if expecting and expecting not in ["escolha_data", None] and conversa.state == "escolhendo_data":
+            logger.warning(f"❌ Escolha de data fora de contexto - expecting: {expecting}")
+            await self.whatsapp.send_text(phone, "Desculpe, não entendi. Voltando ao menu principal.")
+            await self._mostrar_menu_principal(phone, conversa, db)
+            return
+        
         try:
             opcao = int(message.strip())
-            contexto = conversa.context
-            datas = contexto.get('datas_disponiveis', [])
-
-            if 1 <= opcao <= len(datas):
-                data_escolhida = datas[opcao - 1]
-                contexto['data_escolhida'] = data_escolhida
-
-                # Buscar horários disponíveis para a data
-                data_formatada = self.gestaods.formatar_data(data_escolhida['data'])
+            contexto = conversa.context or {}
+            dias = contexto.get('dias_disponiveis', [])
+            
+            if 1 <= opcao <= len(dias):
+                dia_escolhido = dias[opcao - 1]
+                contexto['data_escolhida'] = dia_escolhido
+                contexto['expecting'] = 'escolha_horario'  # 🔧 CORREÇÃO: Flag expecting
                 
-                horarios = await self.gestaods.buscar_horarios_disponiveis(data_formatada)
-
+                # Buscar horários disponíveis
+                horarios = await self.gestaods.buscar_horarios_disponiveis(dia_escolhido['data'])
+                
                 if not horarios:
-                    await self.whatsapp.send_text(
-                        phone,
+                    await self.whatsapp.send_text(phone,
                         "😔 Não há horários disponíveis para esta data.\n\n"
-                        "Por favor, escolha outra data:\n\n"
-                        "Digite *0* para voltar e escolher outra data."
-                    )
+                        "*O que deseja fazer?*\n\n"
+                        "1️⃣ Escolher outra data\n"
+                        "2️⃣ Lista de espera\n"
+                        "0️⃣ Voltar ao menu")
+                    
+                    # ✅ PRESERVAR estado e contexto!
+                    conversa.state = "data_sem_horarios"
+                    db.commit()  # ✅ SEMPRE FAZER COMMIT!
                     return
-
-                # Mostrar horários disponíveis
-                mensagem = f"""
-📅 Data: *{data_escolhida['formatado']}*
-
-⏰ *Horários disponíveis:*
-                """
-
-                for i, horario in enumerate(horarios[:8], 1):  # Limitar a 8 opções
-                    mensagem += f"\n*{i}* - {horario['hora']}"
-
-                mensagem += "\n\nDigite o número do horário desejado:"
-
+                
+                # Mostrar horários
+                data = datetime.fromisoformat(dia_escolhido['data'])
+                mensagem = f"📅 Data: *{data.strftime('%d/%m/%Y')}*\n\n⏰ *Horários disponíveis:*\n\n"
+                
+                for i, horario in enumerate(horarios[:8], 1):  # Limitar a 8 horários
+                    mensagem += f"*{i}* - {horario['horario']}\n"
+                
+                mensagem += "\nDigite o número do horário desejado:"
+                
                 await self.whatsapp.send_text(phone, mensagem)
-
-                contexto['horarios_disponiveis'] = horarios
+                
+                contexto['horarios_disponiveis'] = horarios[:8]
                 conversa.context = contexto
                 conversa.state = "escolhendo_horario"
-
+                
+                # 🔧 CORREÇÃO: Persistir estado imediatamente
+                db.commit()
+                logger.info(f"💾 Estado 'escolhendo_horario' salvo, expecting: escolha_horario")
+                
             else:
-                await self.whatsapp.send_text(
-                    phone,
-                    "❌ Opção inválida!\n\n"
-                    "Por favor, escolha um número válido.\n\n"
-                    "Digite *0* para voltar."
-                )
-
+                await self.whatsapp.send_text(phone,
+                    "❌ Opção inválida!\n\nPor favor, escolha um número válido.")
+                
         except ValueError:
-            await self.whatsapp.send_text(
-                phone,
-                "❌ Por favor, digite apenas o número da opção desejada."
-            )
-
-        db.commit()
-
-    async def _handle_escolha_horario(self, phone: str, message: str,
-                                     conversa: Conversation, db: Session):
-        """Handler para escolha de horário"""
-
+            await self.whatsapp.send_text(phone,
+                "❌ Por favor, digite apenas o número da opção desejada.")
+    
+    async def _handle_escolha_horario(self, phone: str, message: str, conversa: Conversation,
+                                     db: Session, nlu_result: Dict):
+        """Handler para escolha de horário com validação expecting"""
+        # 🔧 CORREÇÃO: Validar expecting apenas se claramente errado
+        expecting = conversa.context.get("expecting")
+        if expecting and expecting not in ["escolha_horario", None] and conversa.state == "escolhendo_horario":
+            logger.warning(f"❌ Escolha de horário fora de contexto - expecting: {expecting}")
+            await self.whatsapp.send_text(phone, "Desculpe, não entendi. Voltando ao menu principal.")
+            await self._mostrar_menu_principal(phone, conversa, db)
+            return
+        
         try:
             opcao = int(message.strip())
-            contexto = conversa.context
+            contexto = conversa.context or {}
             horarios = contexto.get('horarios_disponiveis', [])
-
+            
             if 1 <= opcao <= len(horarios):
                 horario_escolhido = horarios[opcao - 1]
                 contexto['horario_escolhido'] = horario_escolhido
-
+                
                 # Mostrar resumo para confirmação
                 paciente = contexto.get('paciente', {})
-                data = contexto.get('data_escolhida', {})
-                tipo = contexto.get('tipo_consulta', 'Consulta')
-                profissional = contexto.get('profissional', 'Dr(a). Gabriela Nassif')
-
+                data = datetime.fromisoformat(contexto['data_escolhida']['data'])
+                
                 mensagem = f"""
 ✅ *Confirmar agendamento:*
 
 👤 Paciente: *{paciente.get('nome')}*
-🏥 Tipo: *{tipo}*
-👨‍⚕️ Profissional: *{profissional}*
-📅 Data: *{data.get('formatado')}*
-⏰ Horário: *{horario_escolhido.get('hora')}*
+📅 Data: *{data.strftime('%d/%m/%Y')}*
+⏰ Horário: *{horario_escolhido['horario']}*
+👩‍⚕️ Profissional: *Dra. Gabriela Nassif*
 
 *Confirma o agendamento?*
 
 *1* - ✅ Sim, confirmar
 *2* - ❌ Não, cancelar
-*3* - 📝 Adicionar observações
-                """
-
+"""
                 await self.whatsapp.send_text(phone, mensagem)
-
+                
+                contexto['expecting'] = 'confirmacao_agendamento'  # 🔧 CORREÇÃO: Flag expecting
                 conversa.context = contexto
                 conversa.state = "confirmando_agendamento"
-
+                
+                # 🔧 CORREÇÃO: Persistir estado imediatamente
+                db.commit()
+                logger.info(f"💾 Estado 'confirmando_agendamento' salvo, expecting: confirmacao_agendamento")
+                
             else:
-                await self.whatsapp.send_text(
-                    phone,
-                    "❌ Opção inválida!\n\n"
-                    "Por favor, escolha um número válido."
-                )
-
+                await self.whatsapp.send_text(phone,
+                    "❌ Opção inválida!\n\nPor favor, escolha um número válido.")
+                
         except ValueError:
-            await self.whatsapp.send_text(
-                phone,
-                "❌ Por favor, digite apenas o número da opção desejada."
-            )
-
-        db.commit()
-
-    async def _handle_confirmacao(self, phone: str, message: str,
-                                 conversa: Conversation, db: Session):
-        """Handler para confirmação de agendamento"""
-
+            await self.whatsapp.send_text(phone,
+                "❌ Por favor, digite apenas o número da opção desejada.")
+    
+    async def _handle_confirmacao(self, phone: str, message: str, conversa: Conversation,
+                                 db: Session, nlu_result: Dict):
+        """Handler para confirmação de agendamento com validação expecting"""
+        # 🔧 CORREÇÃO: Validar expecting apenas se claramente errado
+        expecting = conversa.context.get("expecting")
+        if expecting and expecting not in ["confirmacao_agendamento", None] and conversa.state == "confirmando_agendamento":
+            logger.warning(f"❌ Confirmação fora de contexto - expecting: {expecting}")
+            await self.whatsapp.send_text(phone, "Desculpe, não entendi. Voltando ao menu principal.")
+            await self._mostrar_menu_principal(phone, conversa, db)
+            return
+        
         opcao = message.strip()
-
+        
         if opcao == "1":
             contexto = conversa.context
-            paciente = contexto.get('paciente', {})
-            data = contexto.get('data_escolhida', {})
-            horario = contexto.get('horario_escolhido', {})
-            tipo = contexto.get('tipo_consulta', 'Consulta')
-            profissional = contexto.get('profissional', 'Dr(a). Gabriela Nassif')
-
-            # Construir data/hora completa
-            data_hora_str = f"{data['data']} {horario['hora']}"
-            data_hora = datetime.strptime(data_hora_str, "%Y-%m-%d %H:%M")
-
-            # Criar agendamento na API
-            data_agendamento = self.gestaods.formatar_data_hora(f"{data['data']} {horario['hora']}:00")
-            data_fim_agendamento = self.gestaods.formatar_data_hora(f"{data['data']} {horario['hora']}:30")  # 30 min de consulta
+            paciente = contexto['paciente']
+            data_escolhida = contexto['data_escolhida']['data']
+            horario = contexto['horario_escolhido']['horario']
             
-            agendamento = await self.gestaods.criar_agendamento(
+            # Formatar datas para API usando método correto
+            # Criar datetime objects
+            dt_inicio = datetime.fromisoformat(f"{data_escolhida} {horario}:00")
+            dt_fim = dt_inicio + timedelta(minutes=30)  # 30 min de consulta
+            
+            # Converter para formato da API usando método do GestãoDS (dd/mm/yyyy hh:mm:ss)
+            data_inicio_api = self.gestaods.converter_datetime_para_api(dt_inicio)
+            data_fim_api = self.gestaods.converter_datetime_para_api(dt_fim)
+            
+            # Criar agendamento
+            resultado = await self.gestaods.criar_agendamento(
                 cpf=paciente['cpf'],
-                data_agendamento=data_agendamento,
-                data_fim_agendamento=data_fim_agendamento,
+                data_agendamento=data_inicio_api,
+                data_fim_agendamento=data_fim_api,
                 primeiro_atendimento=True
             )
-
-            if agendamento:
-                # Salvar no banco local para lembretes
+            
+            if resultado:
+                # Salvar no banco local
                 novo_agendamento = Appointment(
-                    patient_id=str(paciente['id']),
+                    patient_id=str(paciente.get('id', '')),
                     patient_name=paciente['nome'],
                     patient_phone=phone,
-                    appointment_date=data_hora,
-                    appointment_type=tipo,
+                    appointment_date=dt_inicio,
+                    appointment_type="Consulta médica",
                     status="scheduled"
                 )
                 db.add(novo_agendamento)
                 db.commit()
-
+                
                 # Enviar confirmação
-                mensagem = FormatterUtils.formatar_mensagem_agendamento(
-                    paciente, data_hora, horario['hora'], profissional
-                )
+                mensagem = f"""
+✅ *Agendamento confirmado com sucesso!*
 
+📋 *Detalhes da consulta:*
+👤 Paciente: {paciente['nome']}
+📅 Data: {dt_inicio.strftime('%d/%m/%Y')}
+⏰ Horário: {horario}
+👩‍⚕️ Profissional: Dra. Gabriela Nassif
+
+📍 *Endereço:*
+{settings.clinic_address}
+
+💡 *Lembretes:*
+• Chegue com 15 minutos de antecedência
+• Traga documentos e exames anteriores
+• Em caso de atraso, entre em contato
+
+Obrigado pela confiança! 😊
+
+Digite *1* para voltar ao menu principal.
+"""
                 await self.whatsapp.send_text(phone, mensagem)
-
-                # Verificar se há alguém na lista de espera para notificar
-                await self._verificar_lista_espera_para_outras_datas(db)
-
+                
             else:
-                await self.whatsapp.send_text(
-                    phone,
-                    "❌ Erro ao agendar consulta.\n\n"
+                await self.whatsapp.send_text(phone,
+                    "❌ Erro ao confirmar agendamento.\n\n"
                     "Por favor, tente novamente ou entre em contato:\n"
-                    "📞 (31) 9999-9999"
-                )
-
-            # Resetar conversa
-            conversa.state = "inicio"
-            conversa.context = {}
-
-        elif opcao == "2":
-            await self.whatsapp.send_text(
-                phone,
-                "❌ Agendamento cancelado.\n\n"
-                "Se desejar, podemos tentar outro horário.\n\n"
-                "Digite *1* para voltar ao menu principal."
-            )
-            conversa.state = "inicio"
-            conversa.context = {}
-
-        elif opcao == "3":
-            await self.whatsapp.send_text(
-                phone,
-                "📝 Digite suas observações ou sintomas:\n\n"
-                "Exemplo: Dor de cabeça há 3 dias, febre, etc.\n\n"
-                "Ou digite *pular* para não adicionar observações."
-            )
-            conversa.state = "aguardando_observacoes"
-
-        else:
-            await self.whatsapp.send_text(
-                phone,
-                "Por favor, digite:\n"
-                "*1* para confirmar\n"
-                "*2* para cancelar\n"
-                "*3* para adicionar observações"
-            )
-
-        db.commit()
-
-    async def _handle_observacoes(self, phone: str, message: str,
-                                 conversa: Conversation, db: Session):
-        """Handler para observações do paciente"""
-
-        if message.strip().lower() == 'pular':
-            # Pular observações e confirmar
-            await self._handle_confirmacao(phone, "1", conversa, db)
-        else:
-            # Salvar observações e confirmar
-            contexto = conversa.context
-            contexto['observacoes'] = message.strip()
-            conversa.context = contexto
+                    f"📞 {settings.clinic_phone}")
             
-            await self._handle_confirmacao(phone, "1", conversa, db)
-
-    async def _mostrar_agendamentos(self, phone: str, paciente: Dict,
+            conversa.state = "menu_principal"
+            conversa.context = {}
+            db.commit()
+            
+        elif opcao == "2":
+            await self.whatsapp.send_text(phone,
+                "❌ Agendamento cancelado.\n\n"
+                "Digite *1* para voltar ao menu principal.")
+            conversa.state = "menu_principal"
+            conversa.context = {}
+            db.commit()
+        else:
+            await self.whatsapp.send_text(phone,
+                "Por favor, digite:\n*1* para confirmar\n*2* para cancelar")
+    
+    async def _mostrar_agendamentos(self, phone: str, paciente: Dict, 
                                    conversa: Conversation, db: Session):
         """Mostra agendamentos do paciente"""
-
-        # Buscar agendamentos do paciente usando período
-        agendamentos = await self.gestaods.listar_agendamentos_periodo(
-            data_inicial=(datetime.now() - timedelta(days=30)).strftime("%d/%m/%Y"),
-            data_final=(datetime.now() + timedelta(days=365)).strftime("%d/%m/%Y")
-        )
-
-        if not agendamentos:
-            await self.whatsapp.send_text(
-                phone,
+        # Buscar agendamentos
+        data_inicial = datetime.now().strftime("%d/%m/%Y")
+        data_final = (datetime.now() + timedelta(days=365)).strftime("%d/%m/%Y")
+        
+        agendamentos = await self.gestaods.listar_agendamentos_periodo(data_inicial, data_final)
+        
+        # Filtrar agendamentos do paciente
+        agendamentos_paciente = [
+            ag for ag in agendamentos 
+            if ag.get('cpf') == paciente['cpf']
+        ]
+        
+        if not agendamentos_paciente:
+            await self.whatsapp.send_text(phone,
                 "📅 Você não possui agendamentos futuros.\n\n"
                 "Digite *1* para agendar uma consulta\n"
-                "Digite *0* para voltar ao menu"
-            )
+                "Digite *0* para voltar ao menu")
         else:
-            mensagem = FormatterUtils.formatar_lista_agendamentos(agendamentos)
-            mensagem += "\n\n*Opções:*\n"
+            mensagem = f"📅 *Seus agendamentos:*\n\n"
+            
+            for i, ag in enumerate(agendamentos_paciente[:5], 1):
+                try:
+                    dt = datetime.fromisoformat(ag['data_hora'])
+                    mensagem += f"*{i}.* {dt.strftime('%d/%m/%Y às %H:%M')}\n"
+                    mensagem += f"   👩‍⚕️ Dra. Gabriela Nassif\n"
+                    mensagem += f"   📋 Status: {ag.get('status', 'Agendado')}\n\n"
+                except:
+                    pass
+            
+            mensagem += "*Opções:*\n"
             mensagem += "*1* - Agendar nova consulta\n"
-            mensagem += "*2* - Cancelar consulta\n"
-            mensagem += "*3* - Reagendar consulta\n"
+            mensagem += "*3* - Cancelar consulta\n"
             mensagem += "*0* - Voltar ao menu"
-
+            
             await self.whatsapp.send_text(phone, mensagem)
-
+        
         conversa.state = "visualizando_agendamentos"
         db.commit()
-
+    
     async def _handle_visualizar_agendamentos(self, phone: str, message: str,
-                                             conversa: Conversation, db: Session):
+                                             conversa: Conversation, db: Session, nlu_result: Dict):
         """Handler para visualização de agendamentos"""
-
         opcao = message.strip()
-
+        
         if opcao == "0":
-            await self._handle_inicio(phone, message, conversa, db)
+            await self._mostrar_menu_principal(phone, conversa, db)
         elif opcao == "1":
             conversa.context = {"acao": "agendar"}
             conversa.state = "aguardando_cpf"
-            await self.whatsapp.send_text(
-                phone,
+            await self.whatsapp.send_text(phone,
                 "Vamos agendar sua consulta! 📅\n\n"
-                "Por favor, digite seu *CPF* (apenas números):"
-            )
-        elif opcao == "2":
-            conversa.context = {"acao": "cancelar"}
-            conversa.state = "aguardando_cpf"
-            await self.whatsapp.send_text(
-                phone,
-                "Vamos cancelar sua consulta! ❌\n\n"
-                "Por favor, digite seu *CPF* (apenas números):"
-            )
+                "Por favor, digite seu *CPF* (apenas números):")
+            db.commit()
         elif opcao == "3":
-            conversa.context = {"acao": "reagendar"}
-            conversa.state = "aguardando_cpf"
-            await self.whatsapp.send_text(
-                phone,
-                "Vamos reagendar sua consulta! 📅\n\n"
-                "Por favor, digite seu *CPF* (apenas números):"
-            )
+            await self._mostrar_contato_cancelamento(phone)
+            conversa.state = "menu_principal"
+            db.commit()
         else:
-            await self.whatsapp.send_text(
-                phone,
+            await self.whatsapp.send_text(phone,
                 "Opção inválida! Digite:\n"
-                "*0* para voltar ao menu\n"
-                "*1* para agendar\n"
-                "*2* para cancelar\n"
-                "*3* para reagendar"
-            )
-
-        db.commit()
-
+                "*0* para menu\n*1* para agendar\n*3* para cancelar")
+    
     async def _iniciar_cancelamento(self, phone: str, paciente: Dict,
                                    conversa: Conversation, db: Session):
         """Inicia processo de cancelamento"""
-        
-        # Buscar agendamentos do paciente usando período
-        agendamentos = await self.gestaods.listar_agendamentos_periodo(
-            data_inicial=(datetime.now() - timedelta(days=30)).strftime("%d/%m/%Y"),
-            data_final=(datetime.now() + timedelta(days=365)).strftime("%d/%m/%Y")
-        )
-
-        if not agendamentos:
-            await self.whatsapp.send_text(
-                phone,
-                "📅 Você não possui agendamentos para cancelar.\n\n"
-                "Digite *1* para voltar ao menu principal."
-            )
-            conversa.state = "inicio"
-            conversa.context = {}
-        else:
-            # Mostrar agendamentos para cancelamento
-            mensagem = "❌ *Selecione o agendamento para cancelar:*\n\n"
-            
-            for i, ag in enumerate(agendamentos[:5], 1):
-                data = datetime.fromisoformat(ag['data_hora'])
-                mensagem += (
-                    f"*{i}* - {FormatterUtils.formatar_data_brasil(data)} "
-                    f"às {FormatterUtils.formatar_hora_brasil(data)}\n"
-                )
-            
-            mensagem += "\nDigite o número do agendamento ou *0* para voltar:"
-            
-            await self.whatsapp.send_text(phone, mensagem)
-            
-            # Salvar agendamentos no contexto
-            contexto = conversa.context
-            contexto['agendamentos_cancelar'] = agendamentos
-            conversa.context = contexto
-            conversa.state = "cancelando_consulta"
-
+        await self._mostrar_contato_cancelamento(phone)
+        conversa.state = "menu_principal"
         db.commit()
+    
+    async def _mostrar_contato_cancelamento(self, phone: str):
+        """Mostra contato para cancelamento"""
+        await self.whatsapp.send_text(phone, f"""
+📞 *Para cancelar seu agendamento:*
 
-    async def _handle_cancelamento(self, phone: str, message: str,
-                                  conversa: Conversation, db: Session):
-        """Handler para cancelamento de consulta"""
+Entre em contato conosco:
+📞 Telefone: {settings.clinic_phone}
+📧 Email: {settings.clinic_email}
 
-        try:
-            opcao = int(message.strip())
-            
-            if opcao == 0:
-                await self._handle_inicio(phone, message, conversa, db)
-                return
-                
-            contexto = conversa.context
-            agendamentos = contexto.get('agendamentos_cancelar', [])
-            
-            if 1 <= opcao <= len(agendamentos):
-                agendamento = agendamentos[opcao - 1]
-                contexto['agendamento_cancelar'] = agendamento
-                
-                data = datetime.fromisoformat(agendamento['data_hora'])
-                
-                mensagem = f"""
-❌ *Confirmar cancelamento:*
+⏰ *Horário de atendimento:*
+Segunda a Sexta: 8h às 18h
+Sábado: 8h às 12h
 
-📅 Data: {FormatterUtils.formatar_data_brasil(data)}
-⏰ Horário: {FormatterUtils.formatar_hora_brasil(data)}
-👨‍⚕️ Profissional: {agendamento.get('profissional', 'Dr(a). Gabriela Nassif')}
-
-*Tem certeza que deseja cancelar?*
-
-*1* - ✅ Sim, cancelar
-*2* - ❌ Não, manter agendamento
-                """
-                
-                await self.whatsapp.send_text(phone, mensagem)
-                conversa.context = contexto
-                conversa.state = "confirmando_cancelamento"
-                
-            else:
-                await self.whatsapp.send_text(
-                    phone,
-                    "❌ Opção inválida!\n\n"
-                    "Por favor, escolha um número válido."
-                )
-                
-        except ValueError:
-            await self.whatsapp.send_text(
-                phone,
-                "❌ Por favor, digite apenas o número da opção desejada."
-            )
-
-        db.commit()
-
-    async def _handle_confirmar_cancelamento(self, phone: str, message: str,
-                                            conversa: Conversation, db: Session):
-        """Handler para confirmação de cancelamento"""
-
-        opcao = message.strip()
-
-        if opcao == "1":
-            contexto = conversa.context
-            agendamento = contexto.get('agendamento_cancelar', {})
-            
-            # Cancelar na API - usando reagendamento com data passada para cancelar
-            data_atual = datetime.now()
-            data_passada = (data_atual - timedelta(days=1)).strftime("%d/%m/%Y %H:%M:%S")
-            
-            sucesso = await self.gestaods.reagendar_agendamento(
-                agendamento_id=agendamento['id'],
-                data_agendamento=data_passada,
-                data_fim_agendamento=data_passada
-            )
-            
-            if sucesso:
-                await self.whatsapp.send_text(
-                    phone,
-                    "✅ *Agendamento cancelado com sucesso!*\n\n"
-                    "Se precisar reagendar, entre em contato conosco.\n\n"
-                    "Digite *1* para voltar ao menu principal."
-                )
-            else:
-                await self.whatsapp.send_text(
-                    phone,
-                    "❌ Erro ao cancelar agendamento.\n\n"
-                    "Por favor, entre em contato:\n"
-                    "📞 (31) 9999-9999"
-                )
-            
-            conversa.state = "inicio"
-            conversa.context = {}
-            
-        elif opcao == "2":
-            await self.whatsapp.send_text(
-                phone,
-                "✅ Agendamento mantido!\n\n"
-                "Digite *1* para voltar ao menu principal."
-            )
-            conversa.state = "inicio"
-            conversa.context = {}
-            
-        else:
-            await self.whatsapp.send_text(
-                phone,
-                "Por favor, digite:\n"
-                "*1* para confirmar cancelamento\n"
-                "*2* para manter agendamento"
-            )
-
-        db.commit()
-
+Digite *1* para voltar ao menu principal.
+""")
+    
     async def _adicionar_lista_espera(self, phone: str, paciente: Dict,
                                      conversa: Conversation, db: Session):
         """Adiciona paciente à lista de espera"""
-        
         # Verificar se já está na lista
         lista_existente = db.query(WaitingList).filter_by(
-            patient_id=str(paciente['id'])
+            patient_id=str(paciente.get('id', ''))
         ).first()
         
         if lista_existente:
-            await self.whatsapp.send_text(
-                phone,
+            await self.whatsapp.send_text(phone,
                 "📝 Você já está na lista de espera!\n\n"
                 "Assim que houver uma vaga, entraremos em contato.\n\n"
-                "Digite *1* para voltar ao menu principal."
-            )
-            conversa.state = "inicio"
-            conversa.context = {}
+                "Digite *1* para voltar ao menu principal.")
         else:
-            # Adicionar à lista de espera
+            # Adicionar à lista
             nova_entrada = WaitingList(
-                patient_id=str(paciente['id']),
+                patient_id=str(paciente.get('id', '')),
                 patient_name=paciente['nome'],
                 patient_phone=phone,
                 priority=0,
@@ -1169,240 +791,317 @@ Agora vamos escolher a data da consulta.
             db.add(nova_entrada)
             db.commit()
             
-            await self.whatsapp.send_text(
-                phone,
+            await self.whatsapp.send_text(phone,
                 "✅ *Adicionado à lista de espera com sucesso!*\n\n"
                 "Assim que houver uma vaga disponível, "
                 "entraremos em contato com você.\n\n"
-                "Digite *1* para voltar ao menu principal."
-            )
-            conversa.state = "inicio"
-            conversa.context = {}
-
-    async def _handle_lista_espera(self, phone: str, message: str,
-                                  conversa: Conversation, db: Session):
+                "Digite *1* para voltar ao menu principal.")
+        
+        conversa.state = "menu_principal"
+        db.commit()
+    
+    async def _handle_lista_espera(self, phone: str, message: str, conversa: Conversation,
+                                  db: Session, nlu_result: Dict):
         """Handler para lista de espera"""
-        
-        opcao = message.strip()
-        
-        if opcao == "1":
-            await self._handle_inicio(phone, message, conversa, db)
+        if message.strip() == "1":
+            await self._mostrar_menu_principal(phone, conversa, db)
         else:
-            await self.whatsapp.send_text(
-                phone,
-                "Opção inválida! Digite *1* para voltar ao menu principal."
-            )
+            await self.whatsapp.send_text(phone,
+                "Digite *1* para voltar ao menu principal.")
+    
+    async def _mostrar_contato_atendente(self, phone: str):
+        """Mostra informações de contato do atendente"""
+        await self.whatsapp.send_text(phone, f"""
+👨‍⚕️ *Atendimento Humano*
+
+Entre em contato conosco:
+
+📞 Telefone: {settings.clinic_phone}
+📧 Email: {settings.clinic_email}
+
+⏰ *Horário de atendimento:*
+Segunda a Sexta: 8h às 18h
+Sábado: 8h às 12h
+
+Digite *1* para voltar ao menu principal.
+""")
+    
+    async def _finalizar_conversa(self, phone: str, conversa: Conversation, db: Session):
+        """Finaliza a conversa"""
+        await self.whatsapp.send_text(phone,
+            "👋 *Obrigado por usar nossos serviços!*\n\n"
+            "Tenha um ótimo dia! 😊\n\n"
+            "Para iniciar uma nova conversa, digite *oi*.")
         
+        conversa.state = "finalizada"
+        conversa.context = {"finalizada_em": datetime.utcnow().isoformat()}
         db.commit()
-
-    async def _handle_reagendamento(self, phone: str, message: str,
-                                   conversa: Conversation, db: Session):
-        """Handler para reagendamento"""
-        # Implementação similar ao agendamento
-        await self.whatsapp.send_text(
-            phone,
-            "Funcionalidade de reagendamento será implementada em breve."
-        )
-        conversa.state = "inicio"
-        conversa.context = {}
-
-    async def _handle_confirmar_lembrete(self, phone: str, message: str,
-                                        conversa: Conversation, db: Session):
-        """Handler para confirmação de lembrete"""
         
+        # Limpar cache
+        if phone in self.conversation_cache:
+            del self.conversation_cache[phone]
+    
+    async def _cancelar_operacao_atual(self, phone: str, conversa: Conversation, db: Session):
+        """Cancela operação atual e volta ao menu"""
+        await self.whatsapp.send_text(phone,
+            "❌ Operação cancelada.\n\n"
+            "Voltando ao menu principal...")
+        
+        await asyncio.sleep(1)
+        await self._mostrar_menu_principal(phone, conversa, db)
+    
+    async def _handle_estado_desconhecido(self, phone: str, message: str, 
+                                        conversa: Conversation, db: Session, nlu_result: Dict):
+        """Handler para estados desconhecidos com recuperação inteligente"""
+        logger.warning(f"⚠️ Estado desconhecido: {conversa.state}")
+        
+        # Tentar recuperar do contexto
+        contexto = conversa.context or {}
+        acao = contexto.get('acao')
+        
+        if acao:
+            logger.info(f"🔄 Tentando recuperar do contexto: ação={acao}")
+            # Tentar continuar baseado na ação
+            if acao in ['agendar', 'visualizar', 'cancelar', 'lista_espera']:
+                conversa.state = 'aguardando_cpf'
+                await self.whatsapp.send_text(phone, 
+                    "Parece que houve um problema. Vamos continuar! 💪\n\n"
+                    "Por favor, digite seu CPF (apenas números):")
+                db.commit()
+                return
+        
+        # Só volta ao menu se não conseguir recuperar
+        logger.info("   🔄 Não foi possível recuperar contexto, voltando ao menu")
+        await self._mostrar_menu_principal(phone, conversa, db)
+    
+    async def _handle_error(self, phone: str, conversa: Conversation, db: Session):
+        """Handler de erro mais robusto - NÃO reseta estado automaticamente"""
+        logger.error(f"🚨 ERRO durante processamento para {phone}")
+        logger.error(f"   Estado atual: {conversa.state}")
+        logger.error(f"   Contexto: {conversa.context}")
+        
+        # 🔧 CORREÇÃO: Não resetar estado automaticamente!
+        # Apenas informar erro ao usuário
+        await self.whatsapp.send_text(phone, 
+            "😔 Ops! Houve um problema temporário.\n\n"
+            "💡 Você pode continuar de onde parou ou digitar *menu* para recomeçar.")
+        
+        # Manter estado atual - NÃO resetar!
+        logger.info("   ✅ Estado preservado após erro")
+
+
+    async def _handle_agendamento_sem_dias(self, phone: str, message: str, 
+                                          conversa: Conversation, db: Session, nlu_result: Dict):
+        """Handler para quando não há dias disponíveis"""
         opcao = message.strip()
         
         if opcao == "1":
-            await self.whatsapp.send_text(
-                phone,
-                "✅ Presença confirmada!\n\n"
-                "Aguardamos você amanhã!\n\n"
-                "📍 Clínica Gabriela Nassif\n"
-                "Rua Example, 123 - Savassi\n"
-                "Belo Horizonte - MG"
-            )
+            # Tentar novamente
+            contexto = conversa.context or {}
+            paciente = contexto.get('paciente')
+            if paciente:
+                await self._iniciar_agendamento(phone, paciente, conversa, db)
+            else:
+                # Se não tem paciente no contexto, volta para CPF
+                conversa.state = "aguardando_cpf"
+                await self.whatsapp.send_text(phone, 
+                    "Vamos tentar novamente! Digite seu CPF:")
+                db.commit()
         elif opcao == "2":
-            await self.whatsapp.send_text(
-                phone,
-                "❌ Entendido que não poderá comparecer.\n\n"
-                "Para reagendar, digite *1* para voltar ao menu principal."
-            )
+            # Lista de espera
+            contexto = conversa.context or {}
+            paciente = contexto.get('paciente')
+            if paciente:
+                await self._adicionar_lista_espera(phone, paciente, conversa, db)
+            else:
+                conversa.state = "aguardando_cpf"
+                contexto['acao'] = 'lista_espera'
+                conversa.context = contexto
+                await self.whatsapp.send_text(phone, 
+                    "Para entrar na lista de espera, digite seu CPF:")
+                db.commit()
         elif opcao == "3":
-            conversa.context = {"acao": "reagendar"}
-            conversa.state = "aguardando_cpf"
-            await self.whatsapp.send_text(
-                phone,
-                "Vamos reagendar sua consulta! 📅\n\n"
-                "Por favor, digite seu *CPF* (apenas números):"
-            )
-        else:
-            await self.whatsapp.send_text(
-                phone,
-                "Por favor, digite:\n"
-                "*1* para confirmar presença\n"
-                "*2* para não comparecer\n"
-                "*3* para reagendar"
-            )
-            conversa.state = "inicio"
-        
-        db.commit()
-
-    def _save_conversation_state(self, conversa: Conversation, db: Session) -> bool:
-        """Salva o estado da conversa de forma robusta"""
-        try:
+            # Falar com atendente
+            await self._mostrar_contato_atendente(phone)
+            conversa.state = "menu_principal"
             db.commit()
-            logger.info(f"Estado salvo com sucesso: {conversa.state}")
-            
-            # Atualizar cache
-            self.conversation_cache[conversa.phone] = conversa
-            
-            return True
-        except Exception as e:
-            logger.error(f"Erro ao salvar estado: {str(e)}")
-            # Tentar salvar no cache como fallback
-            self.conversation_cache[conversa.phone] = conversa
-            logger.info("Estado salvo no cache como fallback")
-            return False
-
-    def _transition_to_state(self, conversa: Conversation, new_state: str, context_updates: Dict = None, db: Session = None) -> bool:
-        """Transição segura para um novo estado com validação"""
-        logger.info(f"=== TRANSIÇÃO DE ESTADO ===")
-        logger.info(f"Estado atual: {conversa.state}")
-        logger.info(f"Novo estado: {new_state}")
-        logger.info(f"Contexto atual: {conversa.context}")
-        
-        # Validar transição
-        is_valid, error_message, suggestions = self.state_manager.validate_state_transition(
-            conversa.state, new_state, conversa.context or {}
-        )
-        
-        if not is_valid:
-            logger.error(f"Transição inválida: {error_message}")
-            return False
-        
-        # Atualizar contexto se fornecido
-        if context_updates:
-            current_context = conversa.context or {}
-            current_context.update(context_updates)
-            conversa.context = current_context
-            logger.info(f"Contexto atualizado: {conversa.context}")
-        
-        # Fazer transição
-        old_state = conversa.state
-        conversa.state = new_state
-        
-        # Salvar no banco se disponível
-        if db:
-            self._save_conversation_state(conversa, db)
-        
-        logger.info(f"Transição realizada: {old_state} → {new_state}")
-        return True
-
-    def _ensure_valid_state(self, conversa: Conversation, db: Session) -> str:
-        """Garante que o estado da conversa seja válido"""
-        if not conversa.state:
-            conversa.state = "inicio"
-            logger.warning("Estado None detectado - corrigindo para 'inicio'")
-        elif conversa.state.strip() == "":
-            conversa.state = "inicio"
-            logger.warning("Estado vazio detectado - corrigindo para 'inicio'")
+        elif opcao == "0":
+            # Voltar ao menu
+            await self._mostrar_menu_principal(phone, conversa, db)
         else:
-            # Normalizar estado
-            conversa.state = conversa.state.strip().lower()
+            await self.whatsapp.send_text(phone,
+                "❌ Opção inválida!\n\nDigite:\n"
+                "*1* - Tentar novamente\n"
+                "*2* - Lista de espera\n"
+                "*3* - Falar com atendente\n"
+                "*0* - Voltar ao menu")
+            db.commit()
+    
+    async def _handle_data_sem_horarios(self, phone: str, message: str, 
+                                       conversa: Conversation, db: Session, nlu_result: Dict):
+        """Handler para quando data não tem horários"""
+        opcao = message.strip()
         
-        # Salvar estado corrigido
-        self._save_conversation_state(conversa, db)
-        return conversa.state
+        if opcao == "1":
+            # Escolher outra data
+            conversa.state = "escolhendo_data"
+            await self.whatsapp.send_text(phone, 
+                "📅 Escolha outra data das opções disponíveis:")
+            db.commit()
+        elif opcao == "2":
+            # Lista de espera
+            contexto = conversa.context or {}
+            paciente = contexto.get('paciente')
+            if paciente:
+                await self._adicionar_lista_espera(phone, paciente, conversa, db)
+            else:
+                await self.whatsapp.send_text(phone, 
+                    "Para entrar na lista de espera, digite seu CPF:")
+                conversa.state = "aguardando_cpf"
+                contexto['acao'] = 'lista_espera'
+                conversa.context = contexto
+                db.commit()
+        elif opcao == "0":
+            # Voltar ao menu
+            await self._mostrar_menu_principal(phone, conversa, db)
+        else:
+            await self.whatsapp.send_text(phone,
+                "❌ Opção inválida!\n\nDigite:\n"
+                "*1* - Escolher outra data\n"
+                "*2* - Lista de espera\n"
+                "*0* - Voltar ao menu")
+            db.commit()
+
+    async def _mostrar_confirmacao_paciente(self, phone: str, paciente: Dict, 
+                                           conversa: Conversation, db: Session):
+        """Mostra dados do paciente para confirmação"""
+        nome = paciente.get('nome', 'Paciente')
+        cpf = paciente.get('cpf', '')
+        cpf_formatado = self._formatar_cpf_display(cpf)
+        
+        mensagem = f"""
+✅ *Paciente encontrado!*
+
+👤 *Nome:* {nome}
+🆔 *CPF:* {cpf_formatado}
+
+*Confirma que é você?*
+
+*1* - ✅ Sim, é meu cadastro
+*2* - ❌ Não, digite outro CPF
+*0* - 🏠 Voltar ao menu
+
+Digite o número da opção:
+"""
+        await self.whatsapp.send_text(phone, mensagem)
+        
+        # Salvar paciente temporariamente
+        contexto = conversa.context or {}
+        contexto['paciente_temp'] = paciente
+        contexto['expecting'] = 'confirmacao_paciente'  # 🔧 CORREÇÃO: Flag expecting
+        conversa.context = contexto
+        conversa.state = "confirmando_paciente"
+        
+        # 🔧 CORREÇÃO: Persistir estado imediatamente
+        db.commit()
+        logger.info(f"💾 Estado 'confirmando_paciente' salvo, expecting: confirmacao_paciente")
+
+    async def _handle_confirmacao_paciente(self, phone: str, message: str, 
+                                         conversa: Conversation, db: Session, nlu_result: Dict):
+        """Handler para confirmação de paciente"""
+        opcao = message.strip()
+        contexto = conversa.context or {}
+        
+        logger.info(f"🔍 Confirmação de paciente - Opção: '{opcao}'")
+        
+        if opcao == "1":
+            # Confirmar paciente
+            paciente = contexto.get('paciente_temp')
+            if paciente:
+                contexto['paciente'] = paciente
+                contexto.pop('paciente_temp', None)
+                conversa.context = contexto
+                
+                logger.info(f"✅ Paciente confirmado: {paciente.get('nome')}")
+                
+                # 🔧 CORREÇÃO: Fallback robusto quando ação estiver ausente
+                acao = contexto.get('acao')
+                logger.info(f"🎯 Processando ação após confirmação: {acao}")
+                
+                if acao == "agendar":
+                    await self._iniciar_agendamento(phone, paciente, conversa, db)
+                elif acao == "visualizar":
+                    await self._mostrar_agendamentos(phone, paciente, conversa, db)
+                elif acao == "cancelar":
+                    await self._iniciar_cancelamento(phone, paciente, conversa, db)
+                elif acao == "lista_espera":
+                    await self._adicionar_lista_espera(phone, paciente, conversa, db)
+                else:
+                    logger.warning(f"❌ Ação não reconhecida: {acao}")
+                    await self.whatsapp.send_text(phone, "Desculpe, não entendi o que você queria fazer. Voltando ao menu principal.")
+                    conversa.state = "menu_principal"
+                    conversa.context = {}
+                    db.commit()
+                    await self._mostrar_menu_principal(phone, conversa, db)
+            else:
+                logger.error("❌ Paciente temporário não encontrado no contexto")
+                await self._mostrar_menu_principal(phone, conversa, db)
+        
+        elif opcao == "2":
+            # Tentar outro CPF
+            await self.whatsapp.send_text(phone, "Por favor, digite o CPF correto:")
+            conversa.state = "aguardando_cpf"
+            contexto.pop('paciente_temp', None)
+            contexto['expecting'] = 'cpf'  # 🔧 CORREÇÃO: Flag expecting
+            conversa.context = contexto
+            # 🔧 CORREÇÃO: Persistir estado imediatamente
+            db.commit()
+            logger.info(f"💾 Estado 'aguardando_cpf' salvo, expecting: cpf")
+            
+        elif opcao == "0":
+            # Voltar ao menu
+            contexto.pop('paciente_temp', None)
+            conversa.context = contexto
+            await self._mostrar_menu_principal(phone, conversa, db)
+            
+        else:
+            await self.whatsapp.send_text(phone,
+                "❌ Opção inválida!\n\n"
+                "Digite:\n*1* - Sim, é meu cadastro\n*2* - Não, outro CPF\n*0* - Voltar ao menu")
+            db.commit()
+
+    def _formatar_cpf_display(self, cpf: str) -> str:
+        """Formata CPF para exibição: 123.456.789-01"""
+        cpf_limpo = ''.join(filter(str.isdigit, cpf))
+        if len(cpf_limpo) == 11:
+            return f"{cpf_limpo[:3]}.{cpf_limpo[3:6]}.{cpf_limpo[6:9]}-{cpf_limpo[9:]}"
+        return cpf
 
     def _get_or_create_conversation(self, phone: str, db: Session) -> Conversation:
-        """Busca ou cria uma conversa - VERSÃO ROBUSTA"""
-        logger.info(f"=== _get_or_create_conversation DEBUG ===")
-        logger.info(f"Telefone: {phone}")
-        logger.info(f"DB type: {type(db)}")
-        logger.info(f"DB has query: {hasattr(db, 'query')}")
+        """Busca ou cria conversa"""
+        conversa = db.query(Conversation).filter_by(phone=phone).first()
         
-        try:
-            # Verificar se o db tem o método query
-            if not hasattr(db, 'query'):
-                logger.warning("Database não tem método query - usando cache")
-                # Usar cache se disponível
-                if phone in self.conversation_cache:
-                    logger.info("Usando conversa do cache")
-                    return self.conversation_cache[phone]
-                
-                # Criar nova conversa
-                conversa = Conversation(phone=phone)
-                self.conversation_cache[phone] = conversa
-                logger.info(f"Conversa criada no cache - Estado: {conversa.state}")
-                return conversa
-            
-            # Tentar usar filter_by primeiro
-            if hasattr(db.query(Conversation), 'filter_by'):
-                conversa = db.query(Conversation).filter_by(phone=phone).first()
-                logger.info(f"Usando filter_by - Conversa encontrada: {conversa is not None}")
-            else:
-                # Fallback para filter se filter_by não estiver disponível
-                logger.warning("filter_by não disponível - usando filter")
-                conversa = db.query(Conversation).filter(Conversation.phone == phone).first()
-                logger.info(f"Usando filter - Conversa encontrada: {conversa is not None}")
-
-            if not conversa:
-                logger.info("Conversa não encontrada - criando nova")
-                conversa = Conversation(phone=phone)
-                if hasattr(db, 'add'):
-                    db.add(conversa)
-                    if hasattr(db, 'commit'):
-                        try:
-                            db.commit()
-                            logger.info("Nova conversa salva no banco")
-                        except Exception as e:
-                            logger.error(f"Erro ao salvar no banco: {str(e)}")
-                            # Salvar no cache como fallback
-                            self.conversation_cache[phone] = conversa
-                            logger.info("Conversa salva no cache como fallback")
-            else:
-                logger.info(f"Conversa existente encontrada - Estado: {conversa.state}")
-                # Atualizar cache
-                self.conversation_cache[phone] = conversa
-
-            return conversa
-            
-        except Exception as e:
-            logger.error(f"Erro ao buscar/criar conversa: {str(e)}")
-            # Usar cache se disponível
-            if phone in self.conversation_cache:
-                logger.info("Usando conversa do cache após erro")
-                return self.conversation_cache[phone]
-            
-            # Criar conversa mock em caso de erro
-            conversa = Conversation(phone=phone)
-            self.conversation_cache[phone] = conversa
-            logger.info("Conversa mock criada após erro")
-            return conversa
-
-    def _gerar_datas_disponiveis(self, dias: int = 7) -> List[Dict]:
-        """Gera lista de datas disponíveis (dias úteis)"""
-        datas = []
-        data_atual = datetime.now()
-
-        while len(datas) < dias:
-            data_atual += timedelta(days=1)
-
-            # Pular fins de semana
-            if data_atual.weekday() < 5:  # 0-4 = Seg-Sex
-                datas.append({
-                    'data': data_atual.strftime('%Y-%m-%d'),
-                    'formatado': data_atual.strftime('%d/%m/%Y - %A').replace(
-                        'Monday', 'Segunda').replace(
-                        'Tuesday', 'Terça').replace(
-                        'Wednesday', 'Quarta').replace(
-                        'Thursday', 'Quinta').replace(
-                        'Friday', 'Sexta')
-                })
-
-        return datas
-
-    async def _verificar_lista_espera_para_outras_datas(self, db: Session):
-        """Verifica se há pessoas na lista de espera para notificar"""
-        # Implementação futura
-        pass 
+        if not conversa:
+            conversa = Conversation(
+                phone=phone,
+                state="inicio",
+                context={}
+            )
+            db.add(conversa)
+            db.commit()
+        
+        return conversa
+    
+    async def _handle_conversa_finalizada(self, phone: str, message: str, conversa: Conversation,
+                                          db: Session, nlu_result: Dict):
+        """Handler para conversa finalizada - reinicia automaticamente"""
+        logger.info(f"🔄 Conversa finalizada recebeu mensagem: '{message}'")
+        logger.info("Reiniciando conversa automaticamente...")
+        
+        # Reiniciar conversa - tratar como nova saudação
+        conversa.state = "inicio"
+        conversa.context = {}
+        db.commit()
+        
+        # Processar como saudação inicial
+        await self._handle_inicio(phone, message, conversa, db, nlu_result)

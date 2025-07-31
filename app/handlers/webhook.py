@@ -7,6 +7,17 @@ from app.services.conversation import ConversationManager
 from app.models.database import get_db
 from app.config import settings
 
+# ✅ CORREÇÃO CRÍTICA: Instância global para evitar recriação
+_conversation_manager = None
+
+def get_conversation_manager():
+    """Retorna instância singleton do ConversationManager"""
+    global _conversation_manager
+    if _conversation_manager is None:
+        logger.info("🔧 Criando instância global do ConversationManager")
+        _conversation_manager = ConversationManager()
+    return _conversation_manager
+
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
@@ -190,6 +201,10 @@ async def process_message_event(data: dict):
             message_id = data.get("messageId", "")
             from_me = data.get("fromMe", False)
             
+            # Remover sufixo @c.us do telefone
+            if phone.endswith("@c.us"):
+                phone = phone[:-5]
+            
             logger.info(f"Telefone: {phone}")
             logger.info(f"Texto da mensagem: {message_text}")
             logger.info(f"ID da mensagem: {message_id}")
@@ -208,8 +223,8 @@ async def process_message_event(data: dict):
             logger.info("Iniciando processamento com ConversationManager...")
             
             # Processar mensagem com o ConversationManager
-            db = next(get_db())
-            conversation_manager = ConversationManager()
+            db = get_db()
+            conversation_manager = get_conversation_manager()
             
             logger.info("Chamando processar_mensagem...")
             await conversation_manager.processar_mensagem(
@@ -254,8 +269,8 @@ async def process_message_event(data: dict):
             logger.info("Iniciando processamento com ConversationManager...")
             
             # Processar mensagem com o ConversationManager
-            db = next(get_db())
-            conversation_manager = ConversationManager()
+            db = get_db()
+            conversation_manager = get_conversation_manager()
             
             logger.info("Chamando processar_mensagem...")
             await conversation_manager.processar_mensagem(

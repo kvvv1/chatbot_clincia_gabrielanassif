@@ -36,7 +36,6 @@ Assistente virtual no WhatsApp para automatizar o atendimento da Clínica Gabrie
 - **WhatsApp**: Z-API (sem necessidade de aprovação Meta)
 - **Banco de Dados**: PostgreSQL
 - **Deploy**: Docker + Railway/Render
-- **Agendador**: APScheduler
 - **HTTP Client**: httpx (assíncrono)
 
 ## 📋 Pré-requisitos
