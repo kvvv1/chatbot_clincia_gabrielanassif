@@ -98,9 +98,9 @@ def test_zapi_webhook_config():
     print("=== TESTE DE CONFIGURAÇÃO Z-API ===")
     
     # Você precisará das credenciais do Z-API
-    zapi_instance_id = "SEU_INSTANCE_ID"  # Substitua
-    zapi_token = "SEU_TOKEN"  # Substitua
-    zapi_client_token = "SEU_CLIENT_TOKEN"  # Substitua
+    zapi_instance_id = os.getenv("ZAPI_INSTANCE_ID", "")  # Substitua
+    zapi_token = os.getenv("ZAPI_TOKEN", "")  # Substitua
+    zapi_client_token = os.getenv("ZAPI_TOKEN", "")  # Substitua
     
     base_url = f"https://api.z-api.io/instances/{zapi_instance_id}/token/{zapi_token}"
     

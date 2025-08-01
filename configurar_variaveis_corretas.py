@@ -18,8 +18,8 @@ def configurar_variaveis():
     supabase_anon_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZlcXlscXJwaGRwZWV1c2R5ZXl3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM4NzQwOTksImV4cCI6MjA2OTQ1MDA5OX0.cavDpXtpWn28D_FN6prGFjXATj8DdaUPdG7Rrd-m_kI"
     
     # Configurações do Z-API
-    zapi_instance_id = "3E4F7360B552F0C2DBCB9E6774402775"
-    zapi_token = "17829E98BB59E9ADD55BBBA9"
+    zapi_instance_id = os.getenv("ZAPI_INSTANCE_ID", "")
+    zapi_token = os.getenv("ZAPI_TOKEN", "")
     
     # Configurações que precisam ser verificadas
     zapi_client_token = os.getenv('ZAPI_CLIENT_TOKEN', 'seu_client_token_aqui')

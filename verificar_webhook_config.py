@@ -11,9 +11,9 @@ def verificar_webhook_zapi():
     print("🔍 Verificando configuração do webhook no Z-API...")
     
     # Credenciais Z-API
-    instance_id = "3E4F7360B552F0C2DBCB9E6774402775"
-    token = "17829E98BB59E9ADD55BBBA9"
-    client_token = "F909fc109aad54566bf42a6d09f00a8dbS"
+    instance_id = os.getenv("ZAPI_INSTANCE_ID", "")
+    token = os.getenv("ZAPI_TOKEN", "")
+    client_token = os.getenv("ZAPI_TOKEN", "")
     
     # URL esperada do webhook
     expected_webhook = "https://chatbot-clincia.vercel.app/webhook"
@@ -87,7 +87,7 @@ def verificar_webhook_zapi():
             print("❌ Webhook NÃO está configurado!")
             print("🔧 SOLUÇÃO:")
             print("   1. Acesse: https://app.z-api.io/")
-            print("   2. Vá para sua instância: 3E4F7360B552F0C2DBCB9E6774402775")
+            print("   2. Vá para sua instância: VARIABLE_FROM_ENV")
             print("   3. Configure webhook: https://chatbot-clincia.vercel.app/webhook")
             print("   4. Ative todos os eventos")
         
@@ -110,9 +110,9 @@ def testar_envio_mensagem():
     print("\n📨 Testando envio de mensagem via Z-API...")
     
     # Credenciais Z-API
-    instance_id = "3E4F7360B552F0C2DBCB9E6774402775"
-    token = "17829E98BB59E9ADD55BBBA9"
-    client_token = "F909fc109aad54566bf42a6d09f00a8dbS"
+    instance_id = os.getenv("ZAPI_INSTANCE_ID", "")
+    token = os.getenv("ZAPI_TOKEN", "")
+    client_token = os.getenv("ZAPI_TOKEN", "")
     
     try:
         base_url = f"https://api.z-api.io/instances/{instance_id}/token/{token}"

@@ -26,8 +26,8 @@ O erro nos logs do Vercel indica que **5 variáveis de ambiente obrigatórias es
 #### Z-API Configuration
 ```
 ZAPI_INSTANCE_ID = 3E4F7360B552F0C2DBCB9E6774402775
-ZAPI_TOKEN = F909fc109aad54566bf42a6d09f00a8dbS
-ZAPI_CLIENT_TOKEN = F909fc109aad54566bf42a6d09f00a8dbS
+ZAPI_TOKEN = 0BDEFB65E4B5E5615697BCD6
+ZAPI_CLIENT_TOKEN = Fb79b25350a784c8e83d4a25213955ab5S
 ZAPI_BASE_URL = https://api.z-api.io
 ```
 
@@ -106,10 +106,10 @@ vercel env add ZAPI_INSTANCE_ID production
 # Digite: 3E4F7360B552F0C2DBCB9E6774402775
 
 vercel env add ZAPI_TOKEN production
-# Digite: F909fc109aad54566bf42a6d09f00a8dbS
+# Digite: 0BDEFB65E4B5E5615697BCD6
 
 vercel env add ZAPI_CLIENT_TOKEN production
-# Digite: F909fc109aad54566bf42a6d09f00a8dbS
+# Digite: Fb79b25350a784c8e83d4a25213955ab5S
 
 vercel env add CLINIC_NAME production
 # Digite: Clínica Gabriela Nassif

@@ -67,9 +67,9 @@ async def testar_envio_mensagem_real():
     logger.info("=== TESTANDO ENVIO DE MENSAGEM REAL ===")
     
     zapi_config = {
-        "instance_id": "3E4F7360B552F0C2DBCB9E6774402775",
-        "token": "17829E98BB59E9ADD55BBBA9",
-        "client_token": "F909fc109aad54566bf42a6d09f00a8dbS",
+        "instance_id": "VARIABLE_FROM_ENV",
+        "token": "VARIABLE_FROM_ENV",
+        "client_token": "VARIABLE_FROM_ENV",
         "base_url": "https://api.z-api.io"
     }
     

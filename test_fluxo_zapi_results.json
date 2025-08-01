@@ -1,0 +1,235 @@
+{
+  "inicio": "2025-07-31T20:25:46.090191",
+  "testes": [
+    {
+      "nome": "Webhook Health",
+      "status": "SUCESSO",
+      "timestamp": "2025-07-31T20:25:47.078393",
+      "detalhes": "Status: 200",
+      "dados": {}
+    },
+    {
+      "nome": "Dashboard Health",
+      "status": "SUCESSO",
+      "timestamp": "2025-07-31T20:25:47.244500",
+      "detalhes": "Status: 200",
+      "dados": {}
+    },
+    {
+      "nome": "Webhook Message Simulation",
+      "status": "SUCESSO",
+      "timestamp": "2025-07-31T20:25:47.970078",
+      "detalhes": "Resposta recebida: success",
+      "dados": {
+        "request": {
+          "event": "message",
+          "data": {
+            "id": "test_message_001",
+            "from": "5531999999999",
+            "to": "553198600366",
+            "type": "text",
+            "text": {
+              "body": "oi"
+            },
+            "timestamp": 1754004347,
+            "chatId": "5531999999999@c.us"
+          }
+        },
+        "response": {
+          "status": "success",
+          "message": "Mensagem processada com sucesso",
+          "timestamp": "2025-07-31T23:25:47.505341Z"
+        }
+      }
+    },
+    {
+      "nome": "GestãoDS Widget",
+      "status": "FALHA",
+      "timestamp": "2025-07-31T20:25:48.789942",
+      "detalhes": "Status: 404",
+      "dados": {}
+    },
+    {
+      "nome": "GestãoDS Slots",
+      "status": "FALHA",
+      "timestamp": "2025-07-31T20:25:48.794490",
+      "detalhes": "Erro: unsupported operand type(s) for +: 'datetime.datetime' and 'float'",
+      "dados": {}
+    },
+    {
+      "nome": "Conversação Step 1",
+      "status": "SUCESSO",
+      "timestamp": "2025-07-31T20:25:49.342656",
+      "detalhes": "Mensagem: 'oi' - Resposta: success",
+      "dados": {
+        "step": 1,
+        "message": "oi",
+        "response": {
+          "status": "success",
+          "message": "Mensagem processada com sucesso",
+          "timestamp": "2025-07-31T23:25:48.891717Z"
+        }
+      }
+    },
+    {
+      "nome": "Conversação Step 2",
+      "status": "SUCESSO",
+      "timestamp": "2025-07-31T20:25:50.940372",
+      "detalhes": "Mensagem: 'quero agendar' - Resposta: success",
+      "dados": {
+        "step": 2,
+        "message": "quero agendar",
+        "response": {
+          "status": "success",
+          "message": "Mensagem processada com sucesso",
+          "timestamp": "2025-07-31T23:25:50.487911Z"
+        }
+      }
+    },
+    {
+      "nome": "Conversação Step 3",
+      "status": "SUCESSO",
+      "timestamp": "2025-07-31T20:25:52.492573",
+      "detalhes": "Mensagem: '12345678901' - Resposta: success",
+      "dados": {
+        "step": 3,
+        "message": "12345678901",
+        "response": {
+          "status": "success",
+          "message": "Mensagem processada com sucesso",
+          "timestamp": "2025-07-31T23:25:52.038805Z"
+        }
+      }
+    },
+    {
+      "nome": "Conversação Step 4",
+      "status": "SUCESSO",
+      "timestamp": "2025-07-31T20:25:54.481277",
+      "detalhes": "Mensagem: 'João Silva' - Resposta: success",
+      "dados": {
+        "step": 4,
+        "message": "João Silva",
+        "response": {
+          "status": "success",
+          "message": "Mensagem processada com sucesso",
+          "timestamp": "2025-07-31T23:25:54.030272Z"
+        }
+      }
+    },
+    {
+      "nome": "Conversação Step 5",
+      "status": "SUCESSO",
+      "timestamp": "2025-07-31T20:25:56.358885",
+      "detalhes": "Mensagem: '1' - Resposta: success",
+      "dados": {
+        "step": 5,
+        "message": "1",
+        "response": {
+          "status": "success",
+          "message": "Mensagem processada com sucesso",
+          "timestamp": "2025-07-31T23:25:55.880480Z"
+        }
+      }
+    },
+    {
+      "nome": "WebSocket Connection",
+      "status": "FALHA",
+      "timestamp": "2025-07-31T20:25:58.145136",
+      "detalhes": "Erro: server rejected WebSocket connection: HTTP 404",
+      "dados": {}
+    },
+    {
+      "nome": "Dashboard Conversations",
+      "status": "SUCESSO",
+      "timestamp": "2025-07-31T20:25:58.807766",
+      "detalhes": "Conversas encontradas: 2",
+      "dados": {
+        "conversations": [
+          {
+            "id": 1,
+            "phone": "553198600366",
+            "state": "menu_principal",
+            "created_at": "2025-07-31T23:25:58.352969Z",
+            "updated_at": "2025-07-31T23:25:58.352992Z",
+            "message_count": 3,
+            "context": {
+              "acao": "agendar"
+            }
+          },
+          {
+            "id": 2,
+            "phone": "5531999999999",
+            "state": "aguardando_cpf",
+            "created_at": "2025-07-31T22:25:58.352996Z",
+            "updated_at": "2025-07-31T23:25:58.353005Z",
+            "message_count": 1,
+            "context": {}
+          }
+        ],
+        "pagination": {
+          "page": 1,
+          "limit": 20,
+          "total": 2,
+          "pages": 1
+        }
+      }
+    },
+    {
+      "nome": "Dashboard Analytics",
+      "status": "SUCESSO",
+      "timestamp": "2025-07-31T20:25:58.978857",
+      "detalhes": "Analytics carregados",
+      "dados": {
+        "conversations": {
+          "total": 2,
+          "active_last_7_days": 2,
+          "by_state": [
+            {
+              "state": "menu_principal",
+              "count": 1
+            },
+            {
+              "state": "aguardando_cpf",
+              "count": 1
+            }
+          ]
+        },
+        "appointments": {
+          "total": 0,
+          "today": 0,
+          "next_7_days": 0,
+          "by_status": []
+        },
+        "timestamp": "2025-07-31T23:25:58.524925Z"
+      }
+    }
+  ],
+  "erros": [
+    {
+      "nome": "GestãoDS Widget",
+      "status": "FALHA",
+      "timestamp": "2025-07-31T20:25:48.789942",
+      "detalhes": "Status: 404",
+      "dados": {}
+    },
+    {
+      "nome": "GestãoDS Slots",
+      "status": "FALHA",
+      "timestamp": "2025-07-31T20:25:48.794490",
+      "detalhes": "Erro: unsupported operand type(s) for +: 'datetime.datetime' and 'float'",
+      "dados": {}
+    },
+    {
+      "nome": "WebSocket Connection",
+      "status": "FALHA",
+      "timestamp": "2025-07-31T20:25:58.145136",
+      "detalhes": "Erro: server rejected WebSocket connection: HTTP 404",
+      "dados": {}
+    }
+  ],
+  "sucessos": 10,
+  "falhas": 3,
+  "fim": "2025-07-31T20:25:58.991828",
+  "duracao_segundos": 12.896117210388184,
+  "taxa_sucesso": 76.92307692307693
+}

@@ -11,8 +11,8 @@ def atualizar_tokens_em_arquivos():
     print("🔧 Atualizando todos os ZAPI_CLIENT_TOKEN antigos...")
     
     # Token antigo e novo
-    token_antigo = "17829E98BB59E9ADD55BBBA9"
-    token_novo = "F909fc109aad54566bf42a6d09f00a8dbS"
+    token_antigo = "VARIABLE_FROM_ENV"
+    token_novo = "VARIABLE_FROM_ENV"
     
     # Arquivos para atualizar
     arquivos_para_atualizar = [
@@ -85,7 +85,7 @@ def verificar_configuracao_atual():
     if os.path.exists('.env'):
         with open('.env', 'r', encoding='utf-8') as f:
             conteudo = f.read()
-            if 'F909fc109aad54566bf42a6d09f00a8dbS' in conteudo:
+            if 'VARIABLE_FROM_ENV' in conteudo:
                 print("✅ .env - Token correto")
             else:
                 print("❌ .env - Token incorreto")
@@ -94,7 +94,7 @@ def verificar_configuracao_atual():
     if os.path.exists('vercel.env.production'):
         with open('vercel.env.production', 'r', encoding='utf-8') as f:
             conteudo = f.read()
-            if 'F909fc109aad54566bf42a6d09f00a8dbS' in conteudo:
+            if 'VARIABLE_FROM_ENV' in conteudo:
                 print("✅ vercel.env.production - Token correto")
             else:
                 print("❌ vercel.env.production - Token incorreto")

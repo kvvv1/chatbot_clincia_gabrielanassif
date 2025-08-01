@@ -162,7 +162,7 @@ async def instrucoes_finais():
     print("1. Faça o deploy: npx vercel --prod")
     print("2. Configure o webhook manualmente no Z-API:")
     print("   - Acesse: https://app.z-api.io/")
-    print("   - Vá para sua instância: 3E4F7360B552F0C2DBCB9E6774402775")
+    print("   - Vá para sua instância: VARIABLE_FROM_ENV")
     print("   - Configure as URLs do webhook para apontar para o Vercel")
     print("3. Teste enviando uma mensagem para o WhatsApp da clínica")
     

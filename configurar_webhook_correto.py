@@ -169,7 +169,7 @@ async def main():
     
     print("\n📋 Instruções manuais:")
     print("1. Acesse: https://app.z-api.io/")
-    print("2. Vá para sua instância: 3E4F7360B552F0C2DBCB9E6774402775")
+    print("2. Vá para sua instância: VARIABLE_FROM_ENV")
     print("3. Configure manualmente o webhook para: https://chatbot-clincia.vercel.app/webhook")
     print("4. Ative os eventos: message, status, connection")
 

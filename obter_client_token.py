@@ -13,7 +13,7 @@ def obter_client_token():
     print("1. Acesse o painel do Z-API: https://app.z-api.io/")
     print("2. Faça login na sua conta")
     print("3. Vá para 'Instâncias' no menu lateral")
-    print("4. Clique na sua instância: 3E4F7360B552F0C2DBCB9E6774402775")
+    print("4. Clique na sua instância: VARIABLE_FROM_ENV")
     print("5. Na aba 'Configurações' ou 'API', procure por 'Client-Token'")
     print("6. Copie o valor do Client-Token")
     print("\n💡 O Client-Token geralmente começa com algo como:")

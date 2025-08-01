@@ -11,7 +11,7 @@ def atualizar_client_token():
     print("🔑 Atualizando Client Token do Z-API...")
     
     # Client Token fornecido pelo usuário
-    client_token = "F909fc109aad54566bf42a6d09f00a8dbS"
+    client_token = os.getenv("ZAPI_TOKEN", "")
     
     # Carregar .env atual
     load_dotenv()
@@ -30,8 +30,7 @@ def atualizar_client_token():
     token_updated = False
     
     for line in lines:
-        if line.startswith('ZAPI_CLIENT_TOKEN='):
-            updated_lines.append(f'ZAPI_CLIENT_TOKEN={client_token}')
+        if line.startswith('ZAPI_CLIENT_TOKEN = os.getenv("ZAPI_CLIENT_TOKEN", "")ZAPI_CLIENT_TOKEN={client_token}')
             token_updated = True
         else:
             updated_lines.append(line)
