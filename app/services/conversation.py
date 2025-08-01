@@ -46,8 +46,14 @@ class ConversationManager:
         """Verifica se é uma conversa fallback"""
         return hasattr(conversa, '_fields') and 'fallback_' in str(conversa.id)
 
-    async def processar_mensagem(self, phone: str, message: str, message_id: str, db: Session):
+    async def processar_mensagem(self, phone: str, message: str, message_id: str, db_generator):
         """Processa mensagem com sistema robusto de gerenciamento"""
+        # 🔧 CORREÇÃO: Converter generator para sessão
+        if hasattr(db_generator, '__next__'):
+            db = next(db_generator)
+        else:
+            db = db_generator
+            
         try:
             # 🔧 CORREÇÃO: Logs esperados para diagnóstico rápido
             logger.info(f"🎯 ===== INICIANDO PROCESSAMENTO =====")
@@ -90,17 +96,20 @@ class ConversationManager:
             await self._process_by_state(phone, message, conversa, db, nlu_result)
             
             # 🔧 CORREÇÃO: Logs pós-processamento
-            db.refresh(conversa)  # Garantir que temos dados atualizados
-            estado_depois = conversa.state
-            contexto_depois = conversa.context.copy() if conversa.context else {}
-            
-            logger.info(f"🔄 Estado DEPOIS: {estado_depois}")
-            logger.info(f"📋 Contexto DEPOIS: {contexto_depois}")
-            
-            # 🔧 CORREÇÃO: Log explicando por que mudou
-            if estado != estado_depois:
-                logger.info(f"🔍 Mudança de estado: {estado} → {estado_depois}")
-                logger.info(f"📝 Razão: Processamento da mensagem '{message}' resultou em nova fase")
+            try:
+                db.refresh(conversa)  # Garantir que temos dados atualizados
+                estado_depois = conversa.state
+                contexto_depois = conversa.context.copy() if conversa.context else {}
+                
+                logger.info(f"🔄 Estado DEPOIS: {estado_depois}")
+                logger.info(f"📋 Contexto DEPOIS: {contexto_depois}")
+                
+                # 🔧 CORREÇÃO: Log explicando por que mudou
+                if estado != estado_depois:
+                    logger.info(f"🔍 Mudança de estado: {estado} → {estado_depois}")
+                    logger.info(f"📝 Razão: Processamento da mensagem '{message}' resultou em nova fase")
+            except Exception as refresh_error:
+                logger.warning(f"⚠️ Erro ao fazer refresh: {refresh_error}")
             
             logger.info(f"🎯 ===== PROCESSAMENTO CONCLUÍDO =====")
             
@@ -115,6 +124,13 @@ class ConversationManager:
             except Exception as error_handling_error:
                 logger.error(f"❌ Erro crítico no handling de erro: {str(error_handling_error)}")
                 logger.error("Sistema em estado crítico - não enviando mensagem de erro para evitar loops")
+        finally:
+            # 🔧 CORREÇÃO: Fechar sessão se necessário
+            try:
+                if hasattr(db, 'close'):
+                    db.close()
+            except:
+                pass
     
     def _is_global_command(self, message: str) -> bool:
         """Verifica se é um comando global - VERSÃO SUPER RESTRITIVA"""
@@ -300,8 +316,11 @@ Digite *0* para sair
                 logger.info(f"📋 Contexto atualizado: {conversa.context}")
             
             # 🔧 CORREÇÃO: Persistir estado imediatamente
-            db.commit()
-            logger.info(f"💾 Estado salvo no banco: {conversa.state}")
+            try:
+                db.commit()
+                logger.info(f"💾 Estado salvo no banco: {conversa.state}")
+            except Exception as e:
+                logger.error(f"❌ Erro ao salvar estado: {e}")
         else:
             logger.warning(f"❌ Opção inválida: '{opcao}'")
             logger.warning(f"   - Tipo: {type(opcao)}")
@@ -310,7 +329,10 @@ Digite *0* para sair
                 "❌ Opção inválida! Por favor, digite um número de *1 a 5*.")
             # Manter estado atual após opção inválida
             logger.info(f"🔄 Mantendo estado atual: {conversa.state}")
-            db.commit()
+            try:
+                db.commit()
+            except Exception as e:
+                logger.error(f"❌ Erro ao salvar estado: {e}")
     
     async def _handle_cpf(self, phone: str, message: str, conversa: Conversation, 
                          db: Session, nlu_result: Dict):
@@ -346,7 +368,10 @@ Digite *0* para sair
             await self.whatsapp.send_text(phone, "Desculpe, não entendi o que você queria fazer. Voltando ao menu principal.")
             conversa.state = "menu_principal"
             conversa.context = {}
-            db.commit()
+            try:
+                db.commit()
+            except Exception as e:
+                logger.error(f"❌ Erro ao salvar estado: {e}")
             await self._mostrar_menu_principal(phone, conversa, db)
             return
         
@@ -391,7 +416,10 @@ Digite o número da opção:
         contexto['cpf_tentativa'] = cpf
         conversa.context = contexto
         conversa.state = "paciente_nao_encontrado"
-        db.commit()
+        try:
+            db.commit()
+        except Exception as e:
+            logger.error(f"❌ Erro ao salvar estado: {e}")
     
     async def _handle_paciente_nao_encontrado_opcoes(self, phone: str, message: str,
                                                     conversa: Conversation, db: Session, nlu_result: Dict):
@@ -402,7 +430,10 @@ Digite o número da opção:
             # Tentar outro CPF
             await self.whatsapp.send_text(phone, "Por favor, digite seu CPF novamente:")
             conversa.state = "aguardando_cpf"
-            db.commit()
+            try:
+                db.commit()
+            except Exception as e:
+                logger.error(f"❌ Erro ao salvar estado: {e}")
         elif opcao == "2":
             # Realizar cadastro
             await self.whatsapp.send_text(phone, 
@@ -413,12 +444,18 @@ Digite o número da opção:
                 "Nosso atendimento fará seu cadastro e agendamento.\n\n"
                 "Digite *1* para voltar ao menu principal.")
             conversa.state = "menu_principal"
-            db.commit()
+            try:
+                db.commit()
+            except Exception as e:
+                logger.error(f"❌ Erro ao salvar estado: {e}")
         elif opcao == "3":
             # Falar com atendente
             await self._mostrar_contato_atendente(phone)
             conversa.state = "menu_principal"
-            db.commit()
+            try:
+                db.commit()
+            except Exception as e:
+                logger.error(f"❌ Erro ao salvar estado: {e}")
         elif opcao == "0":
             # Voltar ao menu
             await self._mostrar_menu_principal(phone, conversa, db)
@@ -457,8 +494,11 @@ Digite o número da opção:
             conversa.state = "agendamento_sem_dias"
             
             # 🔧 CORREÇÃO: Persistir estado imediatamente
-            db.commit()
-            logger.info(f"💾 Estado 'agendamento_sem_dias' salvo, expecting: agendamento_sem_dias")
+            try:
+                db.commit()
+                logger.info(f"💾 Estado 'agendamento_sem_dias' salvo, expecting: agendamento_sem_dias")
+            except Exception as e:
+                logger.error(f"❌ Erro ao salvar estado: {e}")
             return
         
         # Formatar mensagem com dias disponíveis
@@ -487,10 +527,10 @@ Digite o número da opção:
         if not self._is_fallback_conversation(conversa):
             try:
                 db.commit()
+                logger.info(f"💾 Estado 'escolhendo_data' salvo, expecting: escolha_data")
             except Exception as e:
                 logger.error(f"❌ Erro ao salvar no banco: {str(e)}")
                 # Em modo fallback, apenas continuar
-        logger.info(f"💾 Estado 'escolhendo_data' salvo, expecting: escolha_data")
     
     async def _handle_escolha_data(self, phone: str, message: str, conversa: Conversation,
                                   db: Session, nlu_result: Dict):
@@ -526,7 +566,10 @@ Digite o número da opção:
                     
                     # ✅ PRESERVAR estado e contexto!
                     conversa.state = "data_sem_horarios"
-                    db.commit()  # ✅ SEMPRE FAZER COMMIT!
+                    try:
+                        db.commit()  # ✅ SEMPRE FAZER COMMIT!
+                    except Exception as e:
+                        logger.error(f"❌ Erro ao salvar estado: {e}")
                     return
                 
                 # Mostrar horários
@@ -545,8 +588,11 @@ Digite o número da opção:
                 conversa.state = "escolhendo_horario"
                 
                 # 🔧 CORREÇÃO: Persistir estado imediatamente
-                db.commit()
-                logger.info(f"💾 Estado 'escolhendo_horario' salvo, expecting: escolha_horario")
+                try:
+                    db.commit()
+                    logger.info(f"💾 Estado 'escolhendo_horario' salvo, expecting: escolha_horario")
+                except Exception as e:
+                    logger.error(f"❌ Erro ao salvar estado: {e}")
                 
             else:
                 await self.whatsapp.send_text(phone,
@@ -600,8 +646,11 @@ Digite o número da opção:
                 conversa.state = "confirmando_agendamento"
                 
                 # 🔧 CORREÇÃO: Persistir estado imediatamente
-                db.commit()
-                logger.info(f"💾 Estado 'confirmando_agendamento' salvo, expecting: confirmacao_agendamento")
+                try:
+                    db.commit()
+                    logger.info(f"💾 Estado 'confirmando_agendamento' salvo, expecting: confirmacao_agendamento")
+                except Exception as e:
+                    logger.error(f"❌ Erro ao salvar estado: {e}")
                 
             else:
                 await self.whatsapp.send_text(phone,
@@ -649,16 +698,19 @@ Digite o número da opção:
             
             if resultado:
                 # Salvar no banco local
-                novo_agendamento = Appointment(
-                    patient_id=str(paciente.get('id', '')),
-                    patient_name=paciente['nome'],
-                    patient_phone=phone,
-                    appointment_date=dt_inicio,
-                    appointment_type="Consulta médica",
-                    status="scheduled"
-                )
-                db.add(novo_agendamento)
-                db.commit()
+                try:
+                    novo_agendamento = Appointment(
+                        patient_id=str(paciente.get('id', '')),
+                        patient_name=paciente['nome'],
+                        patient_phone=phone,
+                        appointment_date=dt_inicio,
+                        appointment_type="Consulta médica",
+                        status="scheduled"
+                    )
+                    db.add(novo_agendamento)
+                    db.commit()
+                except Exception as e:
+                    logger.error(f"❌ Erro ao salvar agendamento local: {e}")
                 
                 # Enviar confirmação
                 mensagem = f"""
@@ -692,7 +744,10 @@ Digite *1* para voltar ao menu principal.
             
             conversa.state = "menu_principal"
             conversa.context = {}
-            db.commit()
+            try:
+                db.commit()
+            except Exception as e:
+                logger.error(f"❌ Erro ao salvar estado: {e}")
             
         elif opcao == "2":
             await self.whatsapp.send_text(phone,
@@ -700,7 +755,10 @@ Digite *1* para voltar ao menu principal.
                 "Digite *1* para voltar ao menu principal.")
             conversa.state = "menu_principal"
             conversa.context = {}
-            db.commit()
+            try:
+                db.commit()
+            except Exception as e:
+                logger.error(f"❌ Erro ao salvar estado: {e}")
         else:
             await self.whatsapp.send_text(phone,
                 "Por favor, digite:\n*1* para confirmar\n*2* para cancelar")
@@ -745,7 +803,10 @@ Digite *1* para voltar ao menu principal.
             await self.whatsapp.send_text(phone, mensagem)
         
         conversa.state = "visualizando_agendamentos"
-        db.commit()
+        try:
+            db.commit()
+        except Exception as e:
+            logger.error(f"❌ Erro ao salvar estado: {e}")
     
     async def _handle_visualizar_agendamentos(self, phone: str, message: str,
                                              conversa: Conversation, db: Session, nlu_result: Dict):
@@ -760,11 +821,17 @@ Digite *1* para voltar ao menu principal.
             await self.whatsapp.send_text(phone,
                 "Vamos agendar sua consulta! 📅\n\n"
                 "Por favor, digite seu *CPF* (apenas números):")
-            db.commit()
+            try:
+                db.commit()
+            except Exception as e:
+                logger.error(f"❌ Erro ao salvar estado: {e}")
         elif opcao == "3":
             await self._mostrar_contato_cancelamento(phone)
             conversa.state = "menu_principal"
-            db.commit()
+            try:
+                db.commit()
+            except Exception as e:
+                logger.error(f"❌ Erro ao salvar estado: {e}")
         else:
             await self.whatsapp.send_text(phone,
                 "Opção inválida! Digite:\n"
@@ -775,7 +842,10 @@ Digite *1* para voltar ao menu principal.
         """Inicia processo de cancelamento"""
         await self._mostrar_contato_cancelamento(phone)
         conversa.state = "menu_principal"
-        db.commit()
+        try:
+            db.commit()
+        except Exception as e:
+            logger.error(f"❌ Erro ao salvar estado: {e}")
     
     async def _mostrar_contato_cancelamento(self, phone: str):
         """Mostra contato para cancelamento"""
@@ -797,27 +867,35 @@ Digite *1* para voltar ao menu principal.
                                      conversa: Conversation, db: Session):
         """Adiciona paciente à lista de espera"""
         # Verificar se já está na lista
-        lista_existente = db.query(WaitingList).filter_by(
-            patient_id=str(paciente.get('id', ''))
-        ).first()
-        
-        if lista_existente:
-            await self.whatsapp.send_text(phone,
-                "📝 Você já está na lista de espera!\n\n"
-                "Assim que houver uma vaga, entraremos em contato.\n\n"
-                "Digite *1* para voltar ao menu principal.")
-        else:
-            # Adicionar à lista
-            nova_entrada = WaitingList(
-                patient_id=str(paciente.get('id', '')),
-                patient_name=paciente['nome'],
-                patient_phone=phone,
-                priority=0,
-                notified=False
-            )
-            db.add(nova_entrada)
-            db.commit()
+        try:
+            lista_existente = db.query(WaitingList).filter_by(
+                patient_id=str(paciente.get('id', ''))
+            ).first()
             
+            if lista_existente:
+                await self.whatsapp.send_text(phone,
+                    "📝 Você já está na lista de espera!\n\n"
+                    "Assim que houver uma vaga, entraremos em contato.\n\n"
+                    "Digite *1* para voltar ao menu principal.")
+            else:
+                # Adicionar à lista
+                nova_entrada = WaitingList(
+                    patient_id=str(paciente.get('id', '')),
+                    patient_name=paciente['nome'],
+                    patient_phone=phone,
+                    priority=0,
+                    notified=False
+                )
+                db.add(nova_entrada)
+                db.commit()
+                
+                await self.whatsapp.send_text(phone,
+                    "✅ *Adicionado à lista de espera com sucesso!*\n\n"
+                    "Assim que houver uma vaga disponível, "
+                    "entraremos em contato com você.\n\n"
+                    "Digite *1* para voltar ao menu principal.")
+        except Exception as e:
+            logger.error(f"❌ Erro ao gerenciar lista de espera: {e}")
             await self.whatsapp.send_text(phone,
                 "✅ *Adicionado à lista de espera com sucesso!*\n\n"
                 "Assim que houver uma vaga disponível, "
@@ -825,7 +903,10 @@ Digite *1* para voltar ao menu principal.
                 "Digite *1* para voltar ao menu principal.")
         
         conversa.state = "menu_principal"
-        db.commit()
+        try:
+            db.commit()
+        except Exception as e:
+            logger.error(f"❌ Erro ao salvar estado: {e}")
     
     async def _handle_lista_espera(self, phone: str, message: str, conversa: Conversation,
                                   db: Session, nlu_result: Dict):
@@ -862,7 +943,10 @@ Digite *1* para voltar ao menu principal.
         
         conversa.state = "finalizada"
         conversa.context = {"finalizada_em": datetime.utcnow().isoformat()}
-        db.commit()
+        try:
+            db.commit()
+        except Exception as e:
+            logger.error(f"❌ Erro ao salvar estado: {e}")
         
         # Limpar cache
         if phone in self.conversation_cache:
@@ -894,7 +978,10 @@ Digite *1* para voltar ao menu principal.
                 await self.whatsapp.send_text(phone, 
                     "Parece que houve um problema. Vamos continuar! 💪\n\n"
                     "Por favor, digite seu CPF (apenas números):")
-                db.commit()
+                try:
+                    db.commit()
+                except Exception as e:
+                    logger.error(f"❌ Erro ao salvar estado: {e}")
                 return
         
         # Só volta ao menu se não conseguir recuperar
@@ -916,7 +1003,6 @@ Digite *1* para voltar ao menu principal.
         # Manter estado atual - NÃO resetar!
         logger.info("   ✅ Estado preservado após erro")
 
-
     async def _handle_agendamento_sem_dias(self, phone: str, message: str, 
                                           conversa: Conversation, db: Session, nlu_result: Dict):
         """Handler para quando não há dias disponíveis"""
@@ -933,7 +1019,10 @@ Digite *1* para voltar ao menu principal.
                 conversa.state = "aguardando_cpf"
                 await self.whatsapp.send_text(phone, 
                     "Vamos tentar novamente! Digite seu CPF:")
-                db.commit()
+                try:
+                    db.commit()
+                except Exception as e:
+                    logger.error(f"❌ Erro ao salvar estado: {e}")
         elif opcao == "2":
             # Lista de espera
             contexto = conversa.context or {}
@@ -946,12 +1035,18 @@ Digite *1* para voltar ao menu principal.
                 conversa.context = contexto
                 await self.whatsapp.send_text(phone, 
                     "Para entrar na lista de espera, digite seu CPF:")
-                db.commit()
+                try:
+                    db.commit()
+                except Exception as e:
+                    logger.error(f"❌ Erro ao salvar estado: {e}")
         elif opcao == "3":
             # Falar com atendente
             await self._mostrar_contato_atendente(phone)
             conversa.state = "menu_principal"
-            db.commit()
+            try:
+                db.commit()
+            except Exception as e:
+                logger.error(f"❌ Erro ao salvar estado: {e}")
         elif opcao == "0":
             # Voltar ao menu
             await self._mostrar_menu_principal(phone, conversa, db)
@@ -962,7 +1057,10 @@ Digite *1* para voltar ao menu principal.
                 "*2* - Lista de espera\n"
                 "*3* - Falar com atendente\n"
                 "*0* - Voltar ao menu")
-            db.commit()
+            try:
+                db.commit()
+            except Exception as e:
+                logger.error(f"❌ Erro ao salvar estado: {e}")
     
     async def _handle_data_sem_horarios(self, phone: str, message: str, 
                                        conversa: Conversation, db: Session, nlu_result: Dict):
@@ -974,7 +1072,10 @@ Digite *1* para voltar ao menu principal.
             conversa.state = "escolhendo_data"
             await self.whatsapp.send_text(phone, 
                 "📅 Escolha outra data das opções disponíveis:")
-            db.commit()
+            try:
+                db.commit()
+            except Exception as e:
+                logger.error(f"❌ Erro ao salvar estado: {e}")
         elif opcao == "2":
             # Lista de espera
             contexto = conversa.context or {}
@@ -987,7 +1088,10 @@ Digite *1* para voltar ao menu principal.
                 conversa.state = "aguardando_cpf"
                 contexto['acao'] = 'lista_espera'
                 conversa.context = contexto
-                db.commit()
+                try:
+                    db.commit()
+                except Exception as e:
+                    logger.error(f"❌ Erro ao salvar estado: {e}")
         elif opcao == "0":
             # Voltar ao menu
             await self._mostrar_menu_principal(phone, conversa, db)
@@ -997,7 +1101,10 @@ Digite *1* para voltar ao menu principal.
                 "*1* - Escolher outra data\n"
                 "*2* - Lista de espera\n"
                 "*0* - Voltar ao menu")
-            db.commit()
+            try:
+                db.commit()
+            except Exception as e:
+                logger.error(f"❌ Erro ao salvar estado: {e}")
 
     async def _mostrar_confirmacao_paciente(self, phone: str, paciente: Dict, 
                                            conversa: Conversation, db: Session):
@@ -1033,10 +1140,10 @@ Digite o número da opção:
         if not self._is_fallback_conversation(conversa):
             try:
                 db.commit()
+                logger.info(f"💾 Estado 'confirmando_paciente' salvo, expecting: confirmacao_paciente")
             except Exception as e:
                 logger.error(f"❌ Erro ao salvar no banco: {str(e)}")
                 # Em modo fallback, apenas continuar
-        logger.info(f"💾 Estado 'confirmando_paciente' salvo, expecting: confirmacao_paciente")
 
     async def _handle_confirmacao_paciente(self, phone: str, message: str, 
                                          conversa: Conversation, db: Session, nlu_result: Dict):
@@ -1073,7 +1180,10 @@ Digite o número da opção:
                     await self.whatsapp.send_text(phone, "Desculpe, não entendi o que você queria fazer. Voltando ao menu principal.")
                     conversa.state = "menu_principal"
                     conversa.context = {}
-                    db.commit()
+                    try:
+                        db.commit()
+                    except Exception as e:
+                        logger.error(f"❌ Erro ao salvar estado: {e}")
                     await self._mostrar_menu_principal(phone, conversa, db)
             else:
                 logger.error("❌ Paciente temporário não encontrado no contexto")
@@ -1087,8 +1197,11 @@ Digite o número da opção:
             contexto['expecting'] = 'cpf'  # 🔧 CORREÇÃO: Flag expecting
             conversa.context = contexto
             # 🔧 CORREÇÃO: Persistir estado imediatamente
-            db.commit()
-            logger.info(f"💾 Estado 'aguardando_cpf' salvo, expecting: cpf")
+            try:
+                db.commit()
+                logger.info(f"💾 Estado 'aguardando_cpf' salvo, expecting: cpf")
+            except Exception as e:
+                logger.error(f"❌ Erro ao salvar estado: {e}")
             
         elif opcao == "0":
             # Voltar ao menu
@@ -1100,7 +1213,10 @@ Digite o número da opção:
             await self.whatsapp.send_text(phone,
                 "❌ Opção inválida!\n\n"
                 "Digite:\n*1* - Sim, é meu cadastro\n*2* - Não, outro CPF\n*0* - Voltar ao menu")
-            db.commit()
+            try:
+                db.commit()
+            except Exception as e:
+                logger.error(f"❌ Erro ao salvar estado: {e}")
 
     def _formatar_cpf_display(self, cpf: str) -> str:
         """Formata CPF para exibição: 123.456.789-01"""
@@ -1110,19 +1226,31 @@ Digite o número da opção:
         return cpf
 
     def _get_or_create_conversation(self, phone: str, db: Session) -> Conversation:
-        """Busca ou cria conversa"""
-        conversa = db.query(Conversation).filter_by(phone=phone).first()
-        
-        if not conversa:
-            conversa = Conversation(
-                phone=phone,
-                state="inicio",
-                context={}
-            )
-            db.add(conversa)
-            db.commit()
-        
-        return conversa
+        """Busca ou cria conversa com tratamento de erro robusto"""
+        try:
+            # 🔧 CORREÇÃO: Verificar se db é uma sessão válida
+            if not hasattr(db, 'query'):
+                logger.error(f"❌ Objeto db inválido: {type(db)}")
+                # Retornar conversa fallback
+                return self._create_fallback_conversation(phone)
+            
+            conversa = db.query(Conversation).filter_by(phone=phone).first()
+            
+            if not conversa:
+                conversa = Conversation(
+                    phone=phone,
+                    state="inicio",
+                    context={}
+                )
+                db.add(conversa)
+                db.commit()
+            
+            return conversa
+            
+        except Exception as e:
+            logger.error(f"❌ Erro ao buscar/criar conversa: {str(e)}")
+            # Em caso de erro, retornar conversa fallback
+            return self._create_fallback_conversation(phone)
     
     async def _handle_conversa_finalizada(self, phone: str, message: str, conversa: Conversation,
                                           db: Session, nlu_result: Dict):
@@ -1133,7 +1261,10 @@ Digite o número da opção:
         # Reiniciar conversa - tratar como nova saudação
         conversa.state = "inicio"
         conversa.context = {}
-        db.commit()
+        try:
+            db.commit()
+        except Exception as e:
+            logger.error(f"❌ Erro ao salvar estado: {e}")
         
         # Processar como saudação inicial
         await self._handle_inicio(phone, message, conversa, db, nlu_result)
