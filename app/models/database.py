@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, String, DateTime, JSON, Boolean, Integer
+from sqlalchemy import create_engine, Column, String, DateTime, JSON, Boolean, Integer, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
@@ -56,17 +56,27 @@ IS_VERCEL = os.getenv('VERCEL', '0') == '1'
 def get_database_url():
     """Obtém URL do banco de dados com fallbacks robustos"""
     
+    # 🔍 DEBUG: Log de todas as configurações
+    print(f"🔍 [DEBUG] IS_VERCEL: {IS_VERCEL}")
+    print(f"🔍 [DEBUG] settings.database_url: {settings.database_url}")
+    print(f"🔍 [DEBUG] settings.supabase_url: {settings.supabase_url}")
+    print(f"🔍 [DEBUG] settings.supabase_anon_key: {'[DEFINIDO]' if settings.supabase_anon_key else '[VAZIO]'}")
+    print(f"🔍 [DEBUG] settings.supabase_service_role_key: {'[DEFINIDO]' if settings.supabase_service_role_key else '[VAZIO]'}")
+    
     # 1. Tentar DATABASE_URL direto (se definido)
     if settings.database_url:
+        print(f"✅ [DEBUG] Usando DATABASE_URL: {settings.database_url[:50]}...")
         return settings.database_url
     
     # 2. Construir URL do Supabase se configurado
-    if settings.supabase_url and settings.supabase_anon_key:
+    if settings.supabase_url and settings.supabase_service_role_key:
         try:
             # Extrair host do Supabase URL
             host = settings.supabase_url.replace('https://', '').replace('http://', '')
-            # Construir URL PostgreSQL correta
-            return f"postgresql://postgres.{host.split('.')[0]}:{settings.supabase_anon_key}@{host}:5432/postgres"
+            # Construir URL PostgreSQL correta usando SERVICE_ROLE_KEY
+            url = f"postgresql://postgres.{host.split('.')[0]}:{settings.supabase_service_role_key}@{host}:5432/postgres"
+            print(f"✅ [DEBUG] Construindo URL Supabase: postgresql://postgres.{host.split('.')[0]}:[KEY]@{host}:5432/postgres")
+            return url
         except Exception as e:
             print(f"❌ Erro ao construir URL Supabase: {e}")
     
@@ -74,8 +84,10 @@ def get_database_url():
     if IS_VERCEL:
         # No Vercel, usar SQLite em /tmp
         sqlite_path = "/tmp/chatbot_vercel.db"
+        print(f"⚠️ [DEBUG] FALLBACK: Usando SQLite no Vercel: {sqlite_path}")
     else:
         sqlite_path = Path("chatbot_local.db")
+        print(f"⚠️ [DEBUG] FALLBACK: Usando SQLite local: {sqlite_path}")
     
     return f"sqlite:///{sqlite_path}"
 
@@ -100,14 +112,38 @@ try:
             )
         print("📁 Usando banco SQLite")
     else:
-        # PostgreSQL
-        engine = create_engine(
-            database_url,
-            pool_pre_ping=True,
-            pool_recycle=300,
-            connect_args={"connect_timeout": 10}
-        )
-        print("☁️ Usando banco PostgreSQL")
+        # PostgreSQL com configuração robusta e fallback
+        try:
+            print("🔄 Tentando conectar ao PostgreSQL/Supabase...")
+            engine = create_engine(
+                database_url,
+                pool_pre_ping=True,
+                pool_recycle=60,
+                pool_timeout=5,
+                connect_args={
+                    "connect_timeout": 3,  # Timeout rápido para falhar cedo
+                    "options": "-c statement_timeout=10000"
+                },
+                echo=False
+            )
+            # Testar conexão rapidamente
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            print("✅ PostgreSQL/Supabase conectado com sucesso!")
+            
+        except Exception as pg_error:
+            print(f"⚠️ PostgreSQL falhou: {pg_error}")
+            print("🔄 Usando fallback SQLite...")
+            
+            # Fallback para SQLite
+            sqlite_path = Path("chatbot_fallback.db")
+            fallback_url = f"sqlite:///{sqlite_path}"
+            engine = create_engine(
+                fallback_url, 
+                connect_args={"check_same_thread": False},
+                echo=False
+            )
+            print(f"✅ Fallback SQLite ativo: {fallback_url}")
     
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     

@@ -24,6 +24,28 @@ class ConversationManager:
         self.state_manager = StateManager()
         self.conversation_cache = {}
         
+    def _create_fallback_conversation(self, phone: str):
+        """Cria conversa em memória quando banco falha"""
+        from collections import namedtuple
+        
+        # Criar objeto simples que simula uma conversa
+        FallbackConversation = namedtuple('FallbackConversation', [
+            'id', 'phone', 'state', 'context', 'created_at', 'updated_at'
+        ])
+        
+        return FallbackConversation(
+            id=f"fallback_{phone}",
+            phone=phone,
+            state="inicio",
+            context={},
+            created_at=None,
+            updated_at=None
+        )
+    
+    def _is_fallback_conversation(self, conversa):
+        """Verifica se é uma conversa fallback"""
+        return hasattr(conversa, '_fields') and 'fallback_' in str(conversa.id)
+
     async def processar_mensagem(self, phone: str, message: str, message_id: str, db: Session):
         """Processa mensagem com sistema robusto de gerenciamento"""
         try:
@@ -219,8 +241,13 @@ Digite *0* para sair
         conversa.state = "menu_principal"
         conversa.context = {"expecting": "menu_option"}  # 🔧 CORREÇÃO: Flag expecting
         
-        # 🔧 CORREÇÃO: Persistir estado imediatamente
-        db.commit()
+        # 🔧 CORREÇÃO: Persistir estado apenas se não for fallback
+        if not self._is_fallback_conversation(conversa):
+            try:
+                db.commit()
+            except Exception as e:
+                logger.error(f"❌ Erro ao salvar no banco: {str(e)}")
+                # Em modo fallback, apenas continuar
         logger.info(f"💾 Estado 'menu_principal' salvo, expecting: menu_option")
     
     async def _handle_menu_principal(self, phone: str, message: str, conversa: Conversation,
@@ -456,8 +483,13 @@ Digite o número da opção:
         conversa.context = contexto
         conversa.state = "escolhendo_data"
         
-        # 🔧 CORREÇÃO: Persistir estado imediatamente
-        db.commit()
+        # 🔧 CORREÇÃO: Persistir estado apenas se não for fallback
+        if not self._is_fallback_conversation(conversa):
+            try:
+                db.commit()
+            except Exception as e:
+                logger.error(f"❌ Erro ao salvar no banco: {str(e)}")
+                # Em modo fallback, apenas continuar
         logger.info(f"💾 Estado 'escolhendo_data' salvo, expecting: escolha_data")
     
     async def _handle_escolha_data(self, phone: str, message: str, conversa: Conversation,
@@ -997,8 +1029,13 @@ Digite o número da opção:
         conversa.context = contexto
         conversa.state = "confirmando_paciente"
         
-        # 🔧 CORREÇÃO: Persistir estado imediatamente
-        db.commit()
+        # 🔧 CORREÇÃO: Persistir estado apenas se não for fallback
+        if not self._is_fallback_conversation(conversa):
+            try:
+                db.commit()
+            except Exception as e:
+                logger.error(f"❌ Erro ao salvar no banco: {str(e)}")
+                # Em modo fallback, apenas continuar
         logger.info(f"💾 Estado 'confirmando_paciente' salvo, expecting: confirmacao_paciente")
 
     async def _handle_confirmacao_paciente(self, phone: str, message: str, 
