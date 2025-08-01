@@ -1,6 +1,7 @@
 from sqlalchemy import create_engine, Column, String, DateTime, JSON, Boolean, Integer, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 from datetime import datetime
 import uuid
 import os
@@ -52,21 +53,67 @@ class WaitingList(Base):
 
 # ✅ CORREÇÃO: Configuração robusta para Vercel
 IS_VERCEL = os.getenv('VERCEL', '0') == '1'
+IS_PRODUCTION = os.getenv('ENVIRONMENT', 'development').lower() == 'production'
+
+def test_database_connection(url: str, max_retries: int = 3) -> bool:
+    """Testa se uma URL de banco de dados está funcionando"""
+    for attempt in range(max_retries):
+        try:
+            if url.startswith('sqlite'):
+                # Para SQLite, verificar se consegue criar/acessar o arquivo
+                import sqlite3
+                db_path = url.replace('sqlite:///', '')
+                
+                # Tratar caso especial de banco em memória
+                if db_path == ':memory:':
+                    conn = sqlite3.connect(':memory:')
+                    conn.execute("SELECT 1")
+                    conn.close()
+                    return True
+                
+                # Para arquivos, garantir que o diretório existe
+                dir_path = os.path.dirname(db_path)
+                if dir_path:  # Se não for vazio (arquivo não está na raiz)
+                    os.makedirs(dir_path, exist_ok=True)
+                
+                conn = sqlite3.connect(db_path)
+                conn.execute("SELECT 1")
+                conn.close()
+                return True
+            else:
+                # Para PostgreSQL, testar conexão
+                from sqlalchemy import create_engine, text
+                test_engine = create_engine(url, pool_timeout=3, connect_args={"connect_timeout": 3})
+                with test_engine.connect() as conn:
+                    conn.execute(text("SELECT 1"))
+                test_engine.dispose()
+                return True
+        except Exception as e:
+            print(f"⚠️ Tentativa {attempt + 1}/{max_retries} falhou: {e}")
+            if attempt < max_retries - 1:
+                import time
+                time.sleep(1)
+    return False
 
 def get_database_url():
-    """Obtém URL do banco de dados com fallbacks robustos"""
+    """Obtém URL do banco de dados com fallbacks robustos e teste de conectividade"""
     
     # 🔍 DEBUG: Log de todas as configurações
     print(f"🔍 [DEBUG] IS_VERCEL: {IS_VERCEL}")
-    print(f"🔍 [DEBUG] settings.database_url: {settings.database_url}")
+    print(f"🔍 [DEBUG] IS_PRODUCTION: {IS_PRODUCTION}")
+    print(f"🔍 [DEBUG] settings.database_url: {'[DEFINIDO]' if settings.database_url else '[VAZIO]'}")
     print(f"🔍 [DEBUG] settings.supabase_url: {settings.supabase_url}")
     print(f"🔍 [DEBUG] settings.supabase_anon_key: {'[DEFINIDO]' if settings.supabase_anon_key else '[VAZIO]'}")
     print(f"🔍 [DEBUG] settings.supabase_service_role_key: {'[DEFINIDO]' if settings.supabase_service_role_key else '[VAZIO]'}")
     
     # 1. Tentar DATABASE_URL direto (se definido)
     if settings.database_url:
-        print(f"✅ [DEBUG] Usando DATABASE_URL: {settings.database_url[:50]}...")
-        return settings.database_url
+        print(f"✅ [DEBUG] Testando DATABASE_URL: {settings.database_url[:50]}...")
+        if test_database_connection(settings.database_url):
+            print(f"✅ [DEBUG] DATABASE_URL funcionando!")
+            return settings.database_url
+        else:
+            print(f"❌ [DEBUG] DATABASE_URL não está acessível")
     
     # 2. Construir URL do Supabase se configurado
     if settings.supabase_url and settings.supabase_service_role_key:
@@ -75,119 +122,136 @@ def get_database_url():
             host = settings.supabase_url.replace('https://', '').replace('http://', '')
             # Construir URL PostgreSQL correta usando SERVICE_ROLE_KEY
             url = f"postgresql://postgres.{host.split('.')[0]}:{settings.supabase_service_role_key}@{host}:5432/postgres"
-            print(f"✅ [DEBUG] Construindo URL Supabase: postgresql://postgres.{host.split('.')[0]}:[KEY]@{host}:5432/postgres")
-            return url
+            print(f"✅ [DEBUG] Testando URL Supabase construída...")
+            
+            if test_database_connection(url):
+                print(f"✅ [DEBUG] Supabase funcionando!")
+                return url
+            else:
+                print(f"❌ [DEBUG] Supabase não está acessível")
         except Exception as e:
             print(f"❌ Erro ao construir URL Supabase: {e}")
     
-    # 3. Fallback para SQLite local
+    # 3. Fallback para SQLite - usar em memória no Vercel se /tmp falhar
     if IS_VERCEL:
-        # No Vercel, usar SQLite em /tmp
+        # Primeiro tentar /tmp
         sqlite_path = "/tmp/chatbot_vercel.db"
-        print(f"⚠️ [DEBUG] FALLBACK: Usando SQLite no Vercel: {sqlite_path}")
+        sqlite_url = f"sqlite:///{sqlite_path}"
+        print(f"⚠️ [DEBUG] FALLBACK: Testando SQLite no Vercel: {sqlite_path}")
+        
+        if test_database_connection(sqlite_url):
+            print(f"✅ [DEBUG] SQLite em /tmp funcionando!")
+            return sqlite_url
+        else:
+            # Se /tmp falhar, usar banco em memória
+            print(f"❌ [DEBUG] SQLite em /tmp falhou, usando banco em memória")
+            return "sqlite:///:memory:"
     else:
         sqlite_path = Path("chatbot_local.db")
+        sqlite_url = f"sqlite:///{sqlite_path}"
         print(f"⚠️ [DEBUG] FALLBACK: Usando SQLite local: {sqlite_path}")
-    
-    return f"sqlite:///{sqlite_path}"
+        return sqlite_url
 
-# ✅ CORREÇÃO: Configuração da engine com tratamento robusto
-try:
+# ✅ CORREÇÃO: Configuração ultra-robusta para Vercel
+def create_database_engine():
+    """Cria engine de banco com fallbacks ultra-robustos para ambientes serverless"""
+    
     database_url = get_database_url()
     print(f"🔗 Conectando ao banco: {database_url[:50]}...")
     
-    if database_url.startswith('sqlite'):
-        # ✅ CORREÇÃO: Configuração SQLite para Vercel
-        if IS_VERCEL:
-            # No Vercel, usar /tmp
-            engine = create_engine(
-                database_url, 
-                connect_args={"check_same_thread": False},
-                pool_pre_ping=True
-            )
+    # ESTRATÉGIA 1: Tentar a URL primária
+    try:
+        if database_url.startswith('sqlite'):
+            if database_url == "sqlite:///:memory:":
+                # Banco em memória - sempre funciona
+                engine = create_engine(
+                    database_url,
+                    connect_args={"check_same_thread": False},
+                    poolclass=StaticPool,
+                    echo=False
+                )
+                print("💾 Usando banco SQLite em memória")
+            else:
+                # SQLite com arquivo
+                engine = create_engine(
+                    database_url,
+                    connect_args={"check_same_thread": False},
+                    pool_pre_ping=True,
+                    echo=False
+                )
+                print("📁 Usando banco SQLite em arquivo")
         else:
-            engine = create_engine(
-                database_url, 
-                connect_args={"check_same_thread": False}
-            )
-        print("📁 Usando banco SQLite")
-    else:
-        # PostgreSQL com configuração robusta e fallback
-        try:
-            print("🔄 Tentando conectar ao PostgreSQL/Supabase...")
+            # PostgreSQL/Supabase
             engine = create_engine(
                 database_url,
                 pool_pre_ping=True,
                 pool_recycle=60,
                 pool_timeout=5,
                 connect_args={
-                    "connect_timeout": 3,  # Timeout rápido para falhar cedo
+                    "connect_timeout": 3,
                     "options": "-c statement_timeout=10000"
                 },
                 echo=False
             )
-            # Testar conexão rapidamente
+            # Teste rápido de conexão
             with engine.connect() as conn:
                 conn.execute(text("SELECT 1"))
-            print("✅ PostgreSQL/Supabase conectado com sucesso!")
-            
-        except Exception as pg_error:
-            print(f"⚠️ PostgreSQL falhou: {pg_error}")
-            print("🔄 Usando fallback SQLite...")
-            
-            # Fallback para SQLite
-            sqlite_path = Path("chatbot_fallback.db")
-            fallback_url = f"sqlite:///{sqlite_path}"
+            print("✅ PostgreSQL/Supabase conectado!")
+        
+        # Teste final da engine
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        
+        return engine
+        
+    except Exception as e:
+        print(f"❌ Erro na URL primária: {e}")
+        
+        # ESTRATÉGIA 2: Fallback para banco em memória (SEMPRE funciona)
+        try:
+            print("🔄 Usando fallback: banco em memória")
             engine = create_engine(
-                fallback_url, 
+                "sqlite:///:memory:",
                 connect_args={"check_same_thread": False},
+                poolclass=StaticPool,
                 echo=False
             )
-            print(f"✅ Fallback SQLite ativo: {fallback_url}")
+            
+            # Teste simples
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            
+            print("✅ Fallback em memória funcionando!")
+            return engine
+            
+        except Exception as fallback_error:
+            print(f"❌ Erro crítico no fallback: {fallback_error}")
+            return None
+
+# Configurar banco de dados
+try:
+    engine = create_database_engine()
     
-    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    
-    # ✅ CORREÇÃO: Criar tabelas apenas se necessário
-    try:
-        Base.metadata.create_all(bind=engine)
-        print("✅ Banco de dados configurado com sucesso")
-    except Exception as create_error:
-        print(f"⚠️ Erro ao criar tabelas: {create_error}")
-        print("🔄 Continuando sem criar tabelas...")
-    
-except Exception as e:
-    print(f"❌ Erro ao configurar banco: {e}")
-    print("🔄 Usando configuração de fallback...")
-    
-    # ✅ CORREÇÃO: Fallback robusto
-    try:
-        if IS_VERCEL:
-            fallback_url = "sqlite:////tmp/chatbot_fallback.db"
-        else:
-            fallback_url = "sqlite:///chatbot_fallback.db"
-        
-        engine = create_engine(
-            fallback_url, 
-            connect_args={"check_same_thread": False}
-        )
+    if engine is not None:
         SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
         
-        # Tentar criar tabelas no fallback
+        # Criar tabelas
         try:
             Base.metadata.create_all(bind=engine)
-            print("💾 Banco de fallback configurado com sucesso")
-        except Exception as fallback_error:
-            print(f"⚠️ Erro ao criar tabelas no fallback: {fallback_error}")
-            print("🔄 Usando mock database...")
-            # Se tudo falhar, usar mock
-            engine = None
-            SessionLocal = None
-            
-    except Exception as fallback_e:
-        print(f"❌ Erro no fallback: {fallback_e}")
-        print("🔄 Usando mock database...")
-        engine = None
+            print("✅ Tabelas criadas com sucesso")
+        except Exception as table_error:
+            print(f"⚠️ Erro ao criar tabelas: {table_error}")
+            print("⚠️ Continuando sem tabelas - usando mock quando necessário")
+        
+        print("✅ Sistema de banco configurado com sucesso")
+    else:
+        print("❌ ERRO CRÍTICO: Não foi possível configurar nenhum banco")
         SessionLocal = None
+        
+except Exception as critical_error:
+    print(f"❌ ERRO CRÍTICO na configuração: {critical_error}")
+    engine = None
+    SessionLocal = None
 
 # ✅ CORREÇÃO: Mock database melhorado
 class MockDB:
@@ -254,13 +318,42 @@ class MockQuery:
         return []
 
 def get_db():
-    """Retorna sessão do banco de dados"""
-    if SessionLocal:
-        try:
+    """Dependency que SEMPRE retorna uma sessão utilizável"""
+    db = None
+    try:
+        if SessionLocal is not None:
             db = SessionLocal()
-            return db
-        except Exception as e:
-            print(f"❌ Erro ao criar sessão: {e}")
-            return MockDB()
-    else:
-        return MockDB() 
+            # Teste rápido da sessão
+            try:
+                db.execute(text("SELECT 1"))
+                yield db
+                return
+            except Exception as test_error:
+                print(f"⚠️ Sessão real falhou no teste: {test_error}")
+                try:
+                    db.close()
+                except:
+                    pass
+                db = None
+        
+        # Fallback para MockDB
+        print("🎭 Usando MockDB como fallback")
+        db = MockDB()
+        yield db
+        
+    except Exception as critical_error:
+        print(f"❌ Erro crítico em get_db: {critical_error}")
+        # Último recurso: criar novo MockDB
+        try:
+            if db and hasattr(db, 'close'):
+                db.close()
+        except:
+            pass
+        yield MockDB()
+    finally:
+        # Cleanup seguro
+        try:
+            if db and hasattr(db, 'close') and not isinstance(db, MockDB):
+                db.close()
+        except Exception as close_error:
+            print(f"⚠️ Erro ao fechar sessão: {close_error}") 
