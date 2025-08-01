@@ -5,6 +5,7 @@ Script para verificar se o webhook está configurado no Z-API
 
 import requests
 import json
+import os
 
 def verificar_webhook_zapi():
     """Verifica se o webhook está configurado no Z-API"""
@@ -13,7 +14,7 @@ def verificar_webhook_zapi():
     # Credenciais Z-API
     instance_id = os.getenv("ZAPI_INSTANCE_ID", "")
     token = os.getenv("ZAPI_TOKEN", "")
-    client_token = os.getenv("ZAPI_TOKEN", "")
+    client_token = os.getenv("ZAPI_CLIENT_TOKEN", "")
     
     # URL esperada do webhook
     expected_webhook = "https://chatbot-clincia.vercel.app/webhook"

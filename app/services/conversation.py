@@ -86,18 +86,13 @@ class ConversationManager:
             logger.error(f"❌ Erro no processamento da mensagem: {str(e)}")
             logger.exception("Stack trace completo:")
             
-            # Em caso de erro crítico, resetar conversa
+            # Em caso de erro crítico, tentar handle de erro
             try:
                 conversa = self._get_or_create_conversation(phone, db)
                 await self._handle_error(phone, conversa, db)
             except Exception as error_handling_error:
                 logger.error(f"❌ Erro crítico no handling de erro: {str(error_handling_error)}")
-                # Tentar pelo menos enviar uma mensagem de erro
-                try:
-                    await self.whatsapp.send_text(phone, 
-                        "Desculpe, houve um erro interno. Nosso atendimento entrará em contato.")
-                except:
-                    pass  # Último recurso - não pode falhar aqui
+                logger.error("Sistema em estado crítico - não enviando mensagem de erro para evitar loops")
     
     def _is_global_command(self, message: str) -> bool:
         """Verifica se é um comando global - VERSÃO SUPER RESTRITIVA"""

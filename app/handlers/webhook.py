@@ -201,9 +201,14 @@ async def process_message_event(data: dict):
             logger.info("Mensagem enviada por nós, ignorando")
             return
 
-        # ✅ CORREÇÃO: Validar dados obrigatórios
-        if not phone or not message_text:
-            logger.error("Dados obrigatórios ausentes")
+        # ✅ CORREÇÃO: Validar dados obrigatórios - só phone é obrigatório
+        if not phone:
+            logger.error("Telefone ausente")
+            return
+            
+        # Se não há texto da mensagem, pode ser um callback de status (ignorar)
+        if not message_text:
+            logger.info("Mensagem sem texto (callback de status), ignorando")
             return
 
         # Processar mensagem
@@ -304,8 +309,12 @@ async def webhook_fallback(request: Request, path: str):
         logger.info("Webhook recebido do Z-API (endpoint genérico)")
         logger.info(f"Dados do webhook: {json.dumps(data, indent=2)}")
         
-        # ✅ CORREÇÃO: Processar como webhook principal
-        await process_message_event(data)
+        # ✅ CORREÇÃO: Processar apenas eventos de mensagem
+        event_type = data.get("type", "")
+        if event_type == "ReceivedCallback":
+            await process_message_event(data)
+        else:
+            logger.info(f"Evento {event_type} ignorado no fallback")
         
         return {
             "status": "success",
